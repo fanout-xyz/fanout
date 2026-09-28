@@ -50,7 +50,8 @@ export type NewPayoutRow = { email: string; amount: bigint; note: string };
 
 /**
  * Creates a batch: one fresh claim key per row (only the address goes onchain),
- * email hash as metadata. Keys are saved locally for the batch page (demo only).
+ * email hash as metadata. Keys are saved in this browser BEFORE submitting; if that
+ * fails, nothing is sent (demo storage, see claim-link-store).
  */
 export function useCreatePayout() {
   const client = useFanoutClient();
@@ -59,14 +60,15 @@ export function useCreatePayout() {
   return useMutation({
     mutationFn: async (rows: NewPayoutRow[]) => {
       const keyed = rows.map((row) => ({ row, key: generateClaimKey() }));
-      const { batchId, txHash } = await client.createBatchPayout(
-        keyed.map(({ row, key }) => ({ claimSigner: key.claimSigner, amount: row.amount, emailHash: hashEmail(row.email) })),
-      );
       const saved = saveClaims(
-        batchId,
         keyed.map(({ row, key }) => ({ claimSigner: key.claimSigner, privateKey: key.privateKey, email: row.email, note: row.note })),
       );
-      return { batchId, txHash, linksSaved: saved };
+      if (!saved) {
+        throw new Error("Couldn't save the claim links in this browser, so nothing was sent. Allow site storage and try again.");
+      }
+      return client.createBatchPayout(
+        keyed.map(({ row, key }) => ({ claimSigner: key.claimSigner, amount: row.amount, emailHash: hashEmail(row.email) })),
+      );
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: fanoutKeys.treasury(address) });
