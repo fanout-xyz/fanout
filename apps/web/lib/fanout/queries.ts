@@ -5,6 +5,8 @@ import { useAuth } from "@/lib/auth/provider";
 import { hashEmail } from "@/lib/email-hash";
 import { generateClaimKey } from "./claim-keys";
 import { saveClaims } from "./claim-link-store";
+import { mockRefundUnclaimed } from "./mock-client";
+import { NotFoundError } from "./types";
 import { useFanoutClient } from "./use-fanout-client";
 
 /** Query keys, scoped by address so switching accounts never shows stale data. */
@@ -67,6 +69,32 @@ export function useCreatePayout() {
       return { batchId, txHash, linksSaved: saved };
     },
     onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: fanoutKeys.treasury(address) });
+      void queryClient.invalidateQueries({ queryKey: fanoutKeys.batches(address) });
+    },
+  });
+}
+
+/** One batch. Polls so claims made on a phone show up without a reload. */
+export function useBatch(batchId: string) {
+  const client = useFanoutClient();
+  return useQuery({
+    queryKey: fanoutKeys.batch(batchId),
+    queryFn: () => client.getBatch(batchId),
+    retry: (count, error) => !(error instanceof NotFoundError) && count < 1,
+    // Poll for claims, but stop once we know the payout doesn't exist.
+    refetchInterval: (query) => (query.state.error instanceof NotFoundError ? false : 5_000),
+  });
+}
+
+/** Demo only: simulates claim expiry so unclaimed rows return to the balance. */
+export function useMockExpireUnclaimed(batchId: string) {
+  const address = useAuth().user?.address;
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async () => mockRefundUnclaimed(batchId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: fanoutKeys.batch(batchId) });
       void queryClient.invalidateQueries({ queryKey: fanoutKeys.treasury(address) });
       void queryClient.invalidateQueries({ queryKey: fanoutKeys.batches(address) });
     },

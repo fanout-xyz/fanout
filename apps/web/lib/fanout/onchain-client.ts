@@ -2,6 +2,7 @@ import {
   createPublicClient,
   http,
   parseEventLogs,
+  zeroAddress,
   zeroHash,
   type Address,
   type Hex,
@@ -11,7 +12,7 @@ import { activeChain } from "@/lib/chains";
 import { config } from "@/lib/config";
 import { batchPayoutAbi, claimEscrowAbi, erc20Abi, treasuryAbi } from "./abis";
 import type { FanoutClient, FanoutClientContext } from "./client";
-import type { PayoutStatus } from "./types";
+import { NotFoundError, type PayoutStatus } from "./types";
 
 /**
  * viem implementation against the PLACEHOLDER ABIs in ./abis. Untested until
@@ -85,12 +86,13 @@ export function createOnchainClient(ctx: FanoutClientContext): FanoutClient {
     },
 
     async getBatch(batchId) {
-      const [, createdAt, total, signers] = await reader().readContract({
+      const [platform, createdAt, total, signers] = await reader().readContract({
         address: addr.batchPayout(),
         abi: batchPayoutAbi,
         functionName: "getBatch",
         args: [BigInt(batchId)],
       });
+      if (platform === zeroAddress) throw new NotFoundError(`Payout #${batchId} doesn't exist.`);
       const claims = await reader().multicall({
         allowFailure: false,
         contracts: signers.map((s) => ({ address: addr.claimEscrow(), abi: claimEscrowAbi, functionName: "getClaim" as const, args: [s] as const })),
@@ -116,7 +118,7 @@ export function createOnchainClient(ctx: FanoutClientContext): FanoutClient {
         functionName: "getClaim",
         args: [claimSigner],
       });
-      if (amount === 0n) throw new Error("This payment link isn't valid.");
+      if (amount === 0n) throw new NotFoundError("This payment link isn't valid.");
       return { amount, platform, status: STATUS[status] };
     },
 

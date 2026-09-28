@@ -24,7 +24,11 @@ export function DashboardShell({ children }: { children: ReactNode }) {
   const { authenticated, user, logout } = useAuth();
 
   const navLinks = NAV.map((item) => {
-    const active = pathname === item.href;
+    // Payout pages live under Overview (that's where you open them from), except New payout.
+    const active =
+      item.href === "/dashboard"
+        ? pathname === "/dashboard" || (pathname.startsWith("/dashboard/payouts/") && pathname !== "/dashboard/payouts/new")
+        : pathname === item.href;
     return (
       <Link
         key={item.href}

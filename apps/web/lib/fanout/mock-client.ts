@@ -3,7 +3,7 @@ import { activeChain } from "@/lib/chains";
 import { claimVerifyingContract } from "@/lib/config";
 import { recoverClaimSigner } from "./claim-keys";
 import type { FanoutClient, FanoutClientContext } from "./client";
-import type { Batch, BatchSummary, PayeeHistoryItem } from "./types";
+import { NotFoundError, type Batch, type BatchSummary, type PayeeHistoryItem } from "./types";
 
 /**
  * In-memory stand-in for the contracts. State lives in this module and is mirrored
@@ -131,7 +131,7 @@ export function createMockClient(ctx: FanoutClientContext): FanoutClient {
     async getBatch(batchId) {
       await delay(150, 400);
       const b = load().batches[batchId];
-      if (!b) throw new Error(`Payout ${batchId} not found.`);
+      if (!b) throw new NotFoundError(`Payout #${batchId} doesn't exist.`);
       return structuredClone({ id: b.id, createdAt: b.createdAt, total: b.total, txHash: b.txHash, rows: b.rows });
     },
 
@@ -139,7 +139,7 @@ export function createMockClient(ctx: FanoutClientContext): FanoutClient {
       await delay(200, 500);
       const s = load();
       const ref = s.claims[key(claimSigner)];
-      if (!ref) throw new Error("This payment link isn't valid.");
+      if (!ref) throw new NotFoundError("This payment link isn't valid.");
       const b = s.batches[ref.batchId];
       const row = b.rows[ref.index];
       return { amount: row.amount, platform: b.platform, status: row.status };

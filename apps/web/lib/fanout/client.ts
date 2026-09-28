@@ -50,3 +50,4 @@ export function createFanoutClient(ctx: FanoutClientContext): FanoutClient {
 }
 
 export type * from "./types";
+export { NotFoundError } from "./types";

@@ -45,3 +45,8 @@ export type PayeeHistoryItem = {
   txHash: Hex;
   timestamp: number; // unix ms
 };
+
+/** Thrown when a batch or claim doesn't exist. Not worth retrying. */
+export class NotFoundError extends Error {
+  override name = "NotFoundError";
+}
