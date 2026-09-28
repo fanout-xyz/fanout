@@ -92,7 +92,7 @@ export function useMockExpireUnclaimed(batchId: string) {
   const address = useAuth().user?.address;
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async () => mockRefundUnclaimed(batchId),
+    mutationFn: () => mockRefundUnclaimed(address, batchId),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: fanoutKeys.batch(batchId) });
       void queryClient.invalidateQueries({ queryKey: fanoutKeys.treasury(address) });
