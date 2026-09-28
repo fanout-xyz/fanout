@@ -6,24 +6,34 @@ import { StatusChip } from "@/components/status-chip";
 import { useTicker } from "@/hooks/use-ticker";
 import { useTweenNumber } from "@/hooks/use-tween-number";
 import { formatCents } from "@/lib/money";
+import { cn } from "@/lib/utils";
 import { SceneTable } from "./scene-table";
 import { SAMPLE_PAYEES, SAMPLE_ROWS, SAMPLE_TOTAL_CENTS } from "./steps";
 
 const EASE_OUT = [0.2, 0.8, 0.2, 1] as const;
-type SceneProps = { play: boolean; reduced: boolean };
+/** `large`: the desktop sticky card (560×440), content scaled up to match. */
+type SceneProps = { play: boolean; reduced: boolean; large?: boolean };
 
-export function FundScene({ play, reduced }: SceneProps) {
+export function FundScene({ play, reduced, large }: SceneProps) {
   const cents = useTweenNumber(play || reduced ? SAMPLE_TOTAL_CENTS : 0, { durationMs: 900, instant: reduced });
   return (
     <div className="flex h-full flex-col justify-center gap-5">
-      <div className="rounded-lg border border-line bg-cream p-6">
-        <p className="text-sm font-semibold text-muted">Payout balance</p>
-        <p className="mt-2 font-display text-[clamp(36px,5vw,52px)] leading-none tracking-[-0.03em] text-ink tabular-nums">
+      <div className={cn("rounded-lg border border-line bg-background", large ? "p-8" : "p-6")}>
+        <p className={cn("font-semibold text-muted", large ? "text-base" : "text-sm")}>Payout balance</p>
+        <p
+          className={cn(
+            "mt-2 font-display leading-none tracking-[-0.03em] text-foreground tabular-nums",
+            large ? "text-[64px]" : "text-[clamp(36px,5vw,52px)]",
+          )}
+        >
           {formatCents(cents)}
         </p>
       </div>
       <m.span
-        className="inline-flex w-fit items-center gap-1.5 self-start rounded-full bg-mint px-3 py-1.5 text-sm font-bold text-ink"
+        className={cn(
+          "inline-flex w-fit items-center gap-1.5 self-start rounded-full bg-mint-surface font-bold text-on-mint",
+          large ? "px-4 py-2 text-base" : "px-3 py-1.5 text-sm",
+        )}
         initial={reduced ? false : { opacity: 0, x: -12 }}
         animate={play || reduced ? { opacity: 1, x: 0 } : { opacity: 0, x: -12 }}
         transition={{ duration: 0.22, ease: EASE_OUT, delay: reduced ? 0 : 0.95 }}
@@ -34,7 +44,7 @@ export function FundScene({ play, reduced }: SceneProps) {
   );
 }
 
-export function UploadScene({ play, reduced }: SceneProps) {
+export function UploadScene({ play, reduced, large }: SceneProps) {
   const rows = useTicker(play, SAMPLE_ROWS.length, { intervalMs: 90, delayMs: 500, instant: reduced });
   const done = rows === SAMPLE_ROWS.length;
   const total = useTweenNumber(done ? SAMPLE_TOTAL_CENTS : 0, { durationMs: 800, instant: reduced });
@@ -48,14 +58,14 @@ export function UploadScene({ play, reduced }: SceneProps) {
       >
         <CsvIcon />
         <div>
-          <p className="text-sm font-bold text-ink">march-payouts.csv</p>
-          <p className="text-xs text-muted">email, amount, note</p>
+          <p className={cn("font-bold text-foreground", large ? "text-base" : "text-sm")}>march-payouts.csv</p>
+          <p className={cn("text-muted", large ? "text-sm" : "text-xs")}>email, amount, note</p>
         </div>
       </m.div>
-      <SceneTable visible={rows} reduced={reduced} />
-      <div className="mt-auto flex items-baseline justify-between gap-3 text-sm">
+      <SceneTable visible={rows} reduced={reduced} large={large} />
+      <div className={cn("mt-auto flex items-baseline justify-between gap-3", large ? "text-base" : "text-sm")}>
         <span className="text-muted">Showing 5 of {SAMPLE_PAYEES}</span>
-        <span className="font-bold text-ink tabular-nums">
+        <span className="font-bold text-foreground tabular-nums">
           {SAMPLE_PAYEES} payees · {formatCents(total)}
         </span>
       </div>
@@ -63,7 +73,7 @@ export function UploadScene({ play, reduced }: SceneProps) {
   );
 }
 
-export function PaidScene({ play, reduced }: SceneProps) {
+export function PaidScene({ play, reduced, large }: SceneProps) {
   const claimed = useTicker(play, SAMPLE_ROWS.length, { intervalMs: 520, delayMs: 400, instant: reduced });
   return (
     <div className="flex h-full flex-col gap-4">
@@ -78,13 +88,13 @@ export function PaidScene({ play, reduced }: SceneProps) {
           >
             <PetalsMark size={22} color="var(--color-cream)" cutColor="var(--color-cobalt)" />
           </m.span>
-          <p className="text-sm font-bold text-ink">Payout sent</p>
+          <p className={cn("font-bold text-foreground", large ? "text-base" : "text-sm")}>Payout sent</p>
         </div>
         <StatusChip status={claimed === SAMPLE_ROWS.length ? "claimed" : "sent"} />
       </div>
-      <SceneTable visible={SAMPLE_ROWS.length} claimed={claimed} showStatus reduced={reduced} />
-      <p className="mt-auto text-sm text-muted tabular-nums">
-        <span className="font-bold text-ink">{claimed} of {SAMPLE_ROWS.length} claimed</span> · showing 5 of {SAMPLE_PAYEES}
+      <SceneTable visible={SAMPLE_ROWS.length} claimed={claimed} showStatus reduced={reduced} large={large} />
+      <p className={cn("mt-auto text-muted tabular-nums", large ? "text-base" : "text-sm")}>
+        <span className="font-bold text-foreground">{claimed} of {SAMPLE_ROWS.length} claimed</span> · showing 5 of {SAMPLE_PAYEES}
       </p>
     </div>
   );

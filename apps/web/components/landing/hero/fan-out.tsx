@@ -31,7 +31,7 @@ export function FanOut() {
 
   return (
     <LazyMotion features={domAnimation} strict>
-      <figure className="mx-auto flex w-full max-w-[560px] flex-col items-center">
+      <figure className="mx-auto flex w-full max-w-[560px] flex-col items-center lg:max-w-[min(560px,calc(100svh-12rem))]">
         <div
           ref={boxRef}
           role="img"
@@ -61,7 +61,7 @@ export function FanOut() {
           )}
         </div>
         <figcaption className="mt-4 flex flex-col items-center gap-1">
-          <span aria-hidden className="text-sm font-semibold text-ink tabular-nums">
+          <span aria-hidden className="text-sm font-semibold text-foreground tabular-nums">
             {claimedCount} of {TOTAL} claimed · {formatCents(Math.round(shownCents))}
           </span>
           <span className="text-xs tracking-[0.01em] text-muted">Illustrative example</span>

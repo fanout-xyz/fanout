@@ -13,14 +13,19 @@ export function FinalCta() {
 
   return (
     <section ref={ref} aria-labelledby="cta-title" className="px-6 py-6">
-      <div className="relative isolate mx-auto flex max-w-[1280px] flex-col items-center overflow-hidden rounded-xl bg-cobalt px-6 py-24 text-center lg:py-36">
+      <div
+        data-theme="dark"
+        className="relative isolate mx-auto flex max-w-[1280px] flex-col items-center overflow-hidden rounded-xl bg-cobalt px-6 py-20 text-center lg:py-28"
+      >
         <m.div
           aria-hidden
-          className="pointer-events-none absolute top-1/2 left-1/2 -z-10 w-[600px] max-w-none -translate-x-1/2 -translate-y-1/2 opacity-[0.08]"
+          // 20% smaller than before (480px), offset right so it doesn't sit behind the headline.
+          // Opacity comes from a token: 6% light, 5% dark.
+          className="pointer-events-none absolute top-1/2 -right-40 -z-10 w-[480px] max-w-none -translate-y-1/2 opacity-(--cta-petals-opacity) md:right-[-4%]"
           style={reduced ? undefined : { rotate }}
         >
           {/* eslint-disable-next-line @next/next/no-img-element -- decorative brand SVG */}
-          <img src="/brand/svg/mark/fanout-mark-cream.svg" alt="" width={600} height={474} className="w-full" />
+          <img src="/brand/svg/mark/fanout-mark-cream.svg" alt="" width={480} height={379} className="w-full" />
         </m.div>
         <h2
           id="cta-title"
@@ -31,7 +36,7 @@ export function FinalCta() {
         <Button
           asChild
           size="lg"
-          className="mt-10 bg-cream text-ink hover:bg-surface active:bg-surface focus-visible:ring-cream focus-visible:ring-offset-cobalt"
+          className="mt-10 bg-cream text-ink hover:bg-cream/90 focus-visible:ring-cream focus-visible:ring-offset-cobalt"
         >
           <Link href="/dashboard">Try the demo</Link>
         </Button>

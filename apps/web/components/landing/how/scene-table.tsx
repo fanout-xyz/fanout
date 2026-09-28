@@ -15,13 +15,14 @@ type Props = {
   claimed?: number;
   showStatus?: boolean;
   reduced: boolean;
+  large?: boolean;
 };
 
-export function SceneTable({ visible, claimed = 0, showStatus = false, reduced }: Props) {
+export function SceneTable({ visible, claimed = 0, showStatus = false, reduced, large = false }: Props) {
   const cols = showStatus ? "grid-cols-[1fr_auto_5.25rem]" : "grid-cols-[1fr_auto]";
   return (
     <div className="overflow-hidden rounded-md border border-line">
-      <div className={cn("grid gap-3 border-b border-line bg-cream px-4 py-2 text-xs font-semibold text-muted", cols)}>
+      <div className={cn("grid gap-3 border-b border-line bg-card-raised px-4 py-2 font-semibold text-muted dark:bg-surface", large ? "text-sm" : "text-xs", cols)}>
         <span>Payee</span>
         <span className="text-right">Amount</span>
         {showStatus && <span className="text-right">Status</span>}
@@ -32,16 +33,16 @@ export function SceneTable({ visible, claimed = 0, showStatus = false, reduced }
           return (
             <m.li
               key={row.name}
-              className={cn("grid h-11 items-center gap-3 border-b border-line px-4 text-sm last:border-b-0", cols)}
+              className={cn("grid items-center gap-3 border-b border-line px-4 last:border-b-0", large ? "h-12 text-[15px]" : "h-11 text-sm", cols)}
               initial={reduced ? false : { opacity: 0, y: 8 }}
               animate={i < visible ? { opacity: 1, y: 0 } : { opacity: 0, y: 8 }}
               transition={{ duration: 0.2, ease: EASE_OUT }}
             >
-              <span className="flex min-w-0 items-center gap-2 font-semibold text-ink">
+              <span className="flex min-w-0 items-center gap-2 font-semibold text-foreground">
                 <span aria-hidden>{row.flag}</span>
                 <span className="truncate">{row.name}</span>
               </span>
-              <span className="text-right font-bold text-ink tabular-nums">{formatCents(row.cents)}</span>
+              <span className="text-right font-bold text-foreground tabular-nums">{formatCents(row.cents)}</span>
               {showStatus && (
                 <span className="flex justify-end [perspective:400px]">
                   {/* Keyed by status so each change remounts and flips in. */}

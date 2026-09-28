@@ -12,11 +12,12 @@ export default function Landing() {
   return (
     <SmoothScroll>
       <MotionRoot>
-        <div className="flex min-h-svh flex-col bg-cream text-ink">
+        <div className="flex min-h-svh flex-col bg-background text-foreground">
           <SiteHeader />
           <main className="flex flex-1 flex-col">
-            {/* Hero fills the first screen, header included (header is 4.5rem). */}
-            <div className="flex min-h-[calc(100svh-4.5rem)] flex-col">
+            {/* Hero is exactly one screen, header included (header is 4.5rem). On small
+                screens the content is taller than that, so it grows instead of clipping. */}
+            <div className="flex min-h-[calc(100svh-4.5rem)] flex-col lg:h-[calc(100svh-4.5rem)]">
               <Hero />
             </div>
             <RaceSection />

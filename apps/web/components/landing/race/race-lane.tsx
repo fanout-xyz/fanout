@@ -26,11 +26,11 @@ export function RaceLane({ label, progress, done, fromCents, amountCents, reduce
   const shown = useTweenNumber(amountCents, { durationMs: 600, instant: reduced });
 
   return (
-    <div className="grid gap-x-8 gap-y-3 md:grid-cols-[minmax(0,1fr)_10rem] md:items-end">
+    <div className="grid gap-x-8 gap-y-3 md:grid-cols-[minmax(0,1fr)_11rem] md:items-end">
       <div>
-        <p className="mb-3 text-sm font-bold text-cream">{label}</p>
+        <p className="mb-3 text-base font-semibold text-cream">{label}</p>
         <div className={above ? "relative h-17 md:h-9" : "relative h-9"}>{above}</div>
-        <div className="relative h-10 overflow-hidden rounded-lg bg-ink-raised">
+        <div className="relative h-10 overflow-hidden rounded-lg bg-track">
           <m.div className="absolute inset-y-0 left-0 w-full" style={{ x }}>
             <div className="absolute inset-y-0 left-0 right-5 rounded-l-lg bg-cream/[0.06]" />
             <span className="absolute top-1/2 right-2 size-5 -translate-y-1/2 rounded-full bg-cream" />
@@ -43,7 +43,7 @@ export function RaceLane({ label, progress, done, fromCents, amountCents, reduce
         <p className="text-xs text-cream/60 md:mb-1">
           {formatCents(fromCents)} sent <span aria-hidden>→</span>
         </p>
-        <p className="font-display text-3xl tracking-[-0.02em] text-cream tabular-nums">{formatCents(shown)}</p>
+        <p className="font-display text-[32px] leading-none tracking-[-0.02em] text-cream tabular-nums">{formatCents(shown)}</p>
       </div>
     </div>
   );

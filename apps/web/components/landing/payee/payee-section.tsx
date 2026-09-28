@@ -20,20 +20,20 @@ export function PayeeSection() {
   }, [state, reduced]);
 
   return (
-    <section aria-labelledby="payee-title" className="bg-mint py-18 lg:py-36">
+    <section aria-labelledby="payee-title" className="bg-mint-surface py-20 lg:py-28">
       <div className="mx-auto grid w-full max-w-[1280px] items-center gap-14 px-6 lg:grid-cols-2 lg:gap-16">
         <div>
           <h2
             id="payee-title"
-            className="max-w-[14ch] font-display text-[clamp(40px,5vw,64px)] leading-[1.05] tracking-[-0.03em] text-balance text-ink"
+            className="max-w-[14ch] font-display text-[clamp(40px,5vw,64px)] leading-[1.05] tracking-[-0.03em] text-balance text-foreground"
           >
             No app. No wallet. Just a link.
           </h2>
           <ul className="mt-10 flex flex-col gap-5">
             {POINTS.map((point) => (
-              <li key={point} className="flex items-center gap-4 text-lg font-semibold text-ink">
+              <li key={point} className="flex items-center gap-4 text-lg font-semibold text-foreground">
                 <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-surface">
-                  <PetalsMark size={22} cutColor="var(--color-surface)" />
+                  <PetalsMark size={22} color="var(--on-mint-icon)" cutColor="var(--card)" />
                 </span>
                 {point}
               </li>
@@ -57,7 +57,7 @@ export function PayeeSection() {
               <button
                 type="button"
                 onClick={() => setState("ready")}
-                className="rounded-sm text-sm font-bold text-ink underline underline-offset-4 outline-none hover:text-ink/70 focus-visible:ring-2 focus-visible:ring-cobalt focus-visible:ring-offset-2 focus-visible:ring-offset-mint"
+                className="rounded-sm text-sm font-bold text-foreground underline underline-offset-4 outline-none hover:opacity-70 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-mint-surface"
               >
                 Replay
               </button>

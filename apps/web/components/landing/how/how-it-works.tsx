@@ -11,11 +11,11 @@ const EASE_OUT = [0.2, 0.8, 0.2, 1] as const;
 
 export function HowItWorks() {
   return (
-    <section id="how-it-works" aria-labelledby="how-title" className="scroll-mt-18 bg-cream py-18 lg:py-36">
+    <section id="how-it-works" aria-labelledby="how-title" className="scroll-mt-18 bg-background py-20 lg:py-28">
       <div className="mx-auto w-full max-w-[1280px] px-6">
         <h2
           id="how-title"
-          className="max-w-[18ch] font-display text-[clamp(36px,5vw,56px)] leading-[1.08] tracking-[-0.03em] text-balance text-ink"
+          className="max-w-[18ch] font-display text-[clamp(36px,5vw,56px)] leading-[1.08] tracking-[-0.03em] text-balance text-foreground"
         >
           Three steps. No crypto knowledge needed.
         </h2>
@@ -27,9 +27,14 @@ export function HowItWorks() {
   );
 }
 
-function StepNumber({ n }: { n: number }) {
+function StepNumber({ n, active = true }: { n: number; active?: boolean }) {
   return (
-    <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-cobalt text-sm font-bold text-cream">
+    <span
+      className={cn(
+        "flex size-9 shrink-0 items-center justify-center rounded-full border-2 border-cobalt text-sm font-bold transition-colors duration-200",
+        active ? "bg-cobalt text-cream" : "bg-transparent text-primary",
+      )}
+    >
       {n}
     </span>
   );
@@ -44,22 +49,22 @@ function DesktopSteps() {
   const Scene = SCENES[active];
 
   return (
-    <div className="mt-6 hidden grid-cols-2 gap-16 lg:grid">
+    <div className="mt-6 hidden grid-cols-[minmax(0,1fr)_minmax(560px,1.1fr)] items-stretch gap-16 lg:grid">
       <ol>
         {STEPS.map((step, i) => (
-          <li key={step.title} ref={(el) => void (stepRefs.current[i] = el)} data-step={i} className="flex min-h-[60vh] items-center">
+          <li key={step.title} ref={(el) => void (stepRefs.current[i] = el)} data-step={i} className="flex min-h-[50vh] items-center">
             <button
               type="button"
               onClick={() => setActive(i)}
               aria-current={active === i ? "step" : undefined}
               className={cn(
-                "flex w-full items-start gap-5 rounded-lg p-4 -m-4 text-left outline-none transition-opacity duration-200 focus-visible:ring-2 focus-visible:ring-cobalt focus-visible:ring-offset-2 focus-visible:ring-offset-cream",
-                active === i ? "opacity-100" : "opacity-45 hover:opacity-75",
+                "-m-4 flex w-full items-start gap-5 rounded-lg p-4 text-left outline-none transition-opacity duration-200 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+                active === i ? "opacity-100" : "opacity-40 hover:opacity-75 dark:opacity-45",
               )}
             >
-              <StepNumber n={i + 1} />
+              <StepNumber n={i + 1} active={active === i} />
               <span>
-                <span className="block font-display text-2xl tracking-[-0.015em] text-ink">{step.title}</span>
+                <span className="block font-display text-2xl tracking-[-0.015em] text-foreground">{step.title}</span>
                 <span className="mt-2 block max-w-[40ch] text-base font-medium text-muted">{step.body}</span>
               </span>
             </button>
@@ -67,22 +72,23 @@ function DesktopSteps() {
         ))}
       </ol>
       <div className="relative">
+        {/* Sticky at the viewport's vertical centre, where the active step sits. */}
         <div
           ref={cardRef}
           aria-hidden
-          className="sticky top-[calc(50vh-200px)] h-[400px] w-full max-w-[520px] overflow-hidden rounded-lg border border-line bg-surface"
+          className="sticky top-[calc(50vh-220px)] h-[440px] w-full min-w-[560px] overflow-hidden rounded-lg border border-line bg-surface"
         >
           {/* Crossfade: the outgoing scene fades out on top while the new one fades in. */}
           <AnimatePresence initial={false}>
             <m.div
               key={active}
-              className="absolute inset-6"
+              className="absolute inset-7"
               initial={reduced ? false : { opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               exit={reduced ? undefined : { opacity: 0, y: -12 }}
               transition={{ duration: 0.22, ease: EASE_OUT }}
             >
-              <Scene play={cardInView} reduced={reduced} />
+              <Scene play={cardInView} reduced={reduced} large />
             </m.div>
           </AnimatePresence>
         </div>
@@ -112,7 +118,7 @@ function MobileStep({ index }: { index: number }) {
       <div className="flex items-start gap-4">
         <StepNumber n={index + 1} />
         <div>
-          <h3 className="text-lg leading-snug font-bold tracking-[-0.01em] text-ink">{step.title}</h3>
+          <h3 className="text-lg leading-snug font-bold tracking-[-0.01em] text-foreground">{step.title}</h3>
           <p className="mt-1 text-base font-medium text-muted">{step.body}</p>
         </div>
       </div>

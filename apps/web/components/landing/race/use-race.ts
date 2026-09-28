@@ -2,7 +2,7 @@
 
 import { animate, useMotionValue, useMotionValueEvent, type MotionValue } from "motion/react";
 import { useCallback, useEffect, useState } from "react";
-import { WIRE_FEES } from "./fees";
+import { FEE_AT, WIRE_FEES } from "./fees";
 
 const WIRE_S = 4;
 const FANOUT_S = 0.6;
@@ -27,7 +27,7 @@ export function useRace(start: boolean, reduced: boolean): Race {
   const [run, setRun] = useState(0);
 
   useMotionValueEvent(wire, "change", (p) => {
-    const applied = WIRE_FEES.filter((f) => p >= f.at).length;
+    const applied = FEE_AT.filter((at) => p >= at).length;
     setFeesApplied((prev) => (prev === applied ? prev : applied));
   });
 

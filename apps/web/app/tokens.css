@@ -2,28 +2,26 @@
    @import "tailwindcss";
    @import "./tokens.css";
    Fonts are loaded with next/font in app/layout.tsx and exposed as
-   --font-display (Bricolage Grotesque 700) and --font-sans (Plus Jakarta Sans 400-800). */
+   --font-display (Bricolage Grotesque 700) and --font-sans (Plus Jakarta Sans 400-800).
+
+   Two layers:
+   1. Brand constants (ink, cream, cobalt, tangerine, mint): the same in both themes.
+      Use them where a colour is fixed by design, e.g. cream text on the cobalt CTA band.
+   2. Semantic tokens (surface, line, muted, status, ...): switch with the theme.
+      Use these for anything that sits on the page background.
+   The theme is set by next-themes as data-theme="light" | "dark" on <html>. */
 
 @theme {
-  /* Brand */
+  /* Brand constants */
   --color-ink: #1B1B2F;
   --color-cream: #FFF6EA;
   --color-cobalt: #3355FF;       /* primary actions, links, brand */
   --color-cobalt-600: #2A49E6;   /* hover */
   --color-cobalt-700: #2440D9;   /* pressed */
   --color-tangerine: #FF6B3D;    /* accent only: highlights, illustrations, badges with ink text */
-  --color-tangerine-700: #C2410C;/* only if tangerine must be used as text */
-  --color-mint: #C9F2DC;         /* success surfaces, "paid" chips */
-
-  /* Neutrals (warm) */
-  --color-surface: #FFFFFF;      /* cards on cream */
-  --color-line: #E8DFD0;         /* borders, dividers */
-  --color-muted: #6B645A;        /* secondary text, 5.46:1 on cream */
-
-  /* Status (all at least 4.5:1 on cream and white) */
-  --color-success: #12805C;
-  --color-warning: #B45309;
-  --color-danger: #C8321E;
+  --color-tangerine-700: #C2410C;/* only if tangerine must be used as text (light mode) */
+  --color-mint: #C9F2DC;         /* brand mint; for surfaces use mint-surface */
+  --color-cobalt-on-dark: #7A94FF; /* cobalt for text/focus on always-dark bands (6.5:1 on #14142A) */
 
   /* Type */
   --font-display: var(--font-bricolage), ui-sans-serif, system-ui, sans-serif;
@@ -34,33 +32,94 @@
   --radius-md: 14px;   /* buttons */
   --radius-lg: 20px;   /* cards */
   --radius-xl: 28px;   /* hero panels, phone sheets */
+}
 
-  /* Elevation: flat by default, one soft shadow for floating layers */
-  --shadow-float: 0 8px 30px rgb(27 27 47 / 0.10);
+/* Semantic tokens resolve to the theme variables below. */
+@theme inline {
+  --color-surface: var(--card);             /* cards on the page */
+  --color-card-raised: var(--card-raised);  /* menus, dialogs, hover rows */
+  --color-line: var(--border);              /* borders, dividers */
+  --color-muted: var(--muted);              /* secondary text */
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+  --color-primary-solid: var(--primary-solid);        /* primary BUTTON background */
+  --color-primary-solid-hover: var(--primary-solid-hover);
+  --color-primary-solid-fg: var(--primary-solid-fg);
+  --color-mint-surface: var(--mint-surface);          /* "Claimed", success banners */
+  --color-on-mint: var(--on-mint);                    /* text on mint-surface */
+  --color-on-tangerine: var(--on-tangerine);          /* text on tangerine */
+  --color-refunded-fg: var(--refunded-fg);            /* text on the refunded chip */
+  --color-band-dark: var(--band-dark);                /* always-dark bands (the race) */
+  --color-band-dark-border: var(--band-dark-border);
+  --color-track: var(--track);                        /* race lane tracks */
+  --color-bezel: var(--bezel);                        /* phone mock bezel */
+  --color-on-mint-icon: var(--on-mint-icon);          /* icons on the payee (mint) section */
+
+  /* Elevation: flat by default, one soft shadow for floating layers (none in dark) */
+  --shadow-float: var(--float-shadow);
 }
 
 :root {
   --bg: var(--color-cream);
   --fg: var(--color-ink);
-  --card: var(--color-surface);
-  --border: var(--color-line);
-  --primary: var(--color-cobalt);
+  --card: #FFFFFF;
+  --card-raised: var(--color-cream);
+  --border: #E8DFD0;
+  --muted: #6B645A;                /* 5.46:1 on cream */
+  --primary: var(--color-cobalt);  /* links, focus rings, accents */
   --primary-fg: var(--color-cream);
+  --primary-solid: var(--color-cobalt);
+  --primary-solid-hover: var(--color-cobalt-600);
+  --primary-solid-fg: var(--color-cream);
+  --success: #12805C;
+  --warning: #B45309;
+  --danger: #C8321E;
+  --mint-surface: var(--color-mint);
+  --on-mint: var(--color-ink);
+  --on-tangerine: var(--color-ink);
+  --refunded-fg: var(--color-ink);
+  --band-dark: var(--color-ink);
+  --band-dark-border: transparent;
+  --track: #252540;
+  --bezel: var(--color-ink);
+  --on-mint-icon: var(--color-cobalt);
+  --float-shadow: 0 8px 30px rgb(27 27 47 / 0.10);
+  --coin-glow: none;
+  --cta-petals-opacity: 0.06;
+  color-scheme: light;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg: #1B1B2F;
-    --fg: #FFF6EA;
-    --card: #252540;
-    --border: #34344F;
-    --primary: #6F8BFF;       /* 5.47:1 on ink */
-    --primary-fg: #1B1B2F;
-  }
-}
+/* Dark: warm deep navy, never pure black. Contrast ratios are against --bg. */
 :root[data-theme="dark"] {
-  --bg: #1B1B2F; --fg: #FFF6EA; --card: #252540; --border: #34344F;
-  --primary: #6F8BFF; --primary-fg: #1B1B2F;
+  --bg: #14142A;
+  --fg: #F4EEE4;                   /* 15.6:1 */
+  --card: #1F1F38;                 /* cards, inputs, phone screen */
+  --card-raised: #282845;          /* menus, dialogs, hover rows */
+  --border: #2E2E4A;
+  --muted: #A9A399;                /* 7.2:1 */
+  --primary: #7A94FF;              /* links, focus rings, accents (6.5:1) */
+  --primary-fg: #14142A;
+  --primary-solid: #3355FF;        /* keep brand cobalt for buttons; cream text 5.1:1 */
+  --primary-solid-hover: #4466FF;
+  --primary-solid-fg: #FFF6EA;
+  --success: #4CC99A;              /* 8.7:1 */
+  --warning: #F0A94B;              /* 9.0:1 */
+  --danger: #FF7A66;               /* 7.1:1 */
+  --tangerine-text: #FF6B3D;       /* may be used as text in dark (6.4:1), sparingly */
+  --mint-surface: #0F3B2E;
+  --on-mint: #C9F2DC;              /* 10.2:1 on mint-surface */
+  --on-tangerine: #14142A;
+  --refunded-fg: #FFB59C;
+  --band-dark: #0E0E20;
+  --band-dark-border: #2E2E4A;
+  --track: #1F1F38;
+  --bezel: #2E2E4A;
+  --on-mint-icon: #C9F2DC;
+  --float-shadow: none;            /* layers separate with border + card-raised instead */
+  --coin-glow: 0 0 24px rgb(51 85 255 / 0.25);
+  --cta-petals-opacity: 0.05;
+  color-scheme: dark;
 }
 
 body { background: var(--bg); color: var(--fg); font-family: var(--font-sans); }

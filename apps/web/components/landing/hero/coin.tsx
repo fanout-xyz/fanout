@@ -1,7 +1,7 @@
 "use client";
 
 import { m } from "motion/react";
-import { COIN } from "./fan-layout";
+import { COIN, COIN_AT } from "./fan-layout";
 
 const EASE_OUT = [0.2, 0.8, 0.2, 1] as const;
 
@@ -9,8 +9,8 @@ const EASE_OUT = [0.2, 0.8, 0.2, 1] as const;
 export function Coin({ pulseKey, reduced }: { pulseKey: string; reduced: boolean }) {
   return (
     <div
-      className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"
-      style={{ width: COIN, height: COIN }}
+      className="absolute -translate-x-1/2 -translate-y-1/2"
+      style={{ width: COIN, height: COIN, left: `calc(50% + ${COIN_AT.x}px)`, top: `calc(50% + ${COIN_AT.y}px)` }}
     >
       {!reduced && (
         <m.span
@@ -23,7 +23,7 @@ export function Coin({ pulseKey, reduced }: { pulseKey: string; reduced: boolean
       )}
       <m.div
         key={`coin-${pulseKey}`}
-        className="relative flex size-full items-center justify-center rounded-full bg-cobalt"
+        className="relative flex size-full items-center justify-center rounded-full bg-cobalt shadow-[var(--coin-glow)]"
         initial={{ scale: 1 }}
         animate={reduced ? undefined : { scale: [1, 1.07, 0.97, 1] }}
         transition={{ duration: 0.45, times: [0, 0.35, 0.7, 1], ease: EASE_OUT }}

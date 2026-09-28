@@ -4,13 +4,8 @@
 /* Brand tokens (from the brand kit, unmodified): colours, fonts, radii, shadow. */
 @import "./tokens.css";
 
-@custom-variant dark (&:is(.dark *));
-
-/* Extra named colours taken from tokens.css's dark palette, for dark sections on the landing page. */
-@theme {
-  --color-ink-raised: #252540; /* dark card surface */
-  --color-cobalt-on-ink: #6F8BFF; /* primary on ink, 5.5:1 */
-}
+/* `dark:` follows the theme next-themes puts on <html> (not section-level data-theme markers). */
+@custom-variant dark (&:where(:root[data-theme="dark"], :root[data-theme="dark"] *));
 
 /*
  * shadcn/ui reads the semantic variables below. They are mapped onto the brand
@@ -39,7 +34,7 @@
   --color-card: var(--card);
 }
 
-/* --bg, --fg, --card, --border, --primary, --primary-fg come from tokens.css (light + dark). */
+/* Base theme variables (--bg, --fg, --card, --border, --primary, ...) live in tokens.css. */
 :root {
   --background: var(--bg);
   --foreground: var(--fg);
@@ -47,17 +42,31 @@
   --popover: var(--card);
   --popover-foreground: var(--fg);
   --primary-foreground: var(--primary-fg);
-  --secondary: var(--color-surface);
-  --secondary-foreground: var(--color-ink);
-  --muted-foreground: var(--color-muted);
-  --accent: var(--color-cream);
-  --accent-foreground: var(--color-ink);
-  --destructive: var(--color-danger);
+  --secondary: var(--card);
+  --secondary-foreground: var(--fg);
+  --muted-foreground: var(--muted);
+  --accent: var(--card-raised);
+  --accent-foreground: var(--fg);
+  --destructive: var(--danger);
   --input: var(--border);
   --ring: var(--primary);
   --radius: 14px;
 
   --ease-out-soft: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+:root[data-theme="dark"] {
+  --popover: var(--card-raised);
+}
+
+/* Theme switch: fade colours for 150ms. The toggle adds this class briefly, and
+   never under prefers-reduced-motion. */
+.theme-transition,
+.theme-transition *,
+.theme-transition *::before,
+.theme-transition *::after {
+  transition:
+    background-color 150ms var(--ease-out-soft),
+    color 150ms var(--ease-out-soft) !important;
 }
 
 @layer base {

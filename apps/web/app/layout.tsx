@@ -44,16 +44,21 @@ export const metadata: Metadata = {
   twitter: { card: "summary_large_image", title, description, images: ["/og-image.png"] },
 };
 
+// Per-theme browser chrome colour (values mirror --bg in tokens.css). ThemeColorSync
+// updates these when the user picks Light or Dark explicitly.
 export const viewport: Viewport = {
-  themeColor: "#3355FF",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#FFF6EA" },
+    { media: "(prefers-color-scheme: dark)", color: "#14142A" },
+  ],
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    // Light only for now: dark tokens exist, but no screen has been designed for them yet.
+    // suppressHydrationWarning: next-themes sets data-theme on <html> before React hydrates.
     <html
       lang="en"
-      data-theme="light"
+      suppressHydrationWarning
       className={`${bricolage.variable} ${jakarta.variable} h-full antialiased`}
     >
       {/* suppressHydrationWarning: browser extensions (e.g. ColorZilla) add attributes to <body> before React loads. */}

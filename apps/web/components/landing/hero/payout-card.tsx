@@ -1,7 +1,7 @@
 "use client";
 
 import { m, type Transition } from "motion/react";
-import { CARD } from "./fan-layout";
+import { CARD, COIN_AT } from "./fan-layout";
 import { curveKeyframes } from "./curve";
 import { formatCents, type DemoPayee } from "./payees";
 
@@ -23,10 +23,10 @@ type Props = {
 };
 
 export function PayoutCard({ payee, land, order, released, claimed, resetting, reduced }: Props) {
-  // Offsets are relative to the landing spot, so (-land) is the coin's centre.
-  const home = { x: -land.x, y: -land.y };
+  // Offsets are relative to the landing spot; `home` is the coin's centre in that frame.
+  const home = { x: COIN_AT.x - land.x, y: COIN_AT.y - land.y };
   const path = curveKeyframes(home); // 15 points, cheap enough to recompute
-  const startTilt = land.x > 0 ? -18 : 18;
+  const startTilt = land.y < 0 ? -18 : 18;
 
   let animate;
   let transition: Transition;
@@ -73,18 +73,18 @@ export function PayoutCard({ payee, land, order, released, claimed, resetting, r
         transition={claimed && !reduced ? { duration: 0.5, ease: EASE_OUT } : { duration: 0 }}
       >
         <div className="absolute inset-0 flex flex-col justify-center gap-0.5 rounded-md border border-line bg-surface px-3 [backface-visibility:hidden]">
-          <span className="flex items-center gap-1.5 text-xs leading-tight font-semibold text-ink">
+          <span className="flex items-center gap-1.5 text-xs leading-tight font-semibold text-foreground">
             <span aria-hidden>{payee.flag}</span>
             {payee.name}
           </span>
-          <span className="text-sm leading-tight font-bold text-ink tabular-nums">{formatCents(payee.cents)}</span>
+          <span className="text-sm leading-tight font-bold text-foreground tabular-nums">{formatCents(payee.cents)}</span>
         </div>
-        <div className="absolute inset-0 flex flex-col justify-center gap-0.5 rounded-md bg-mint px-3 [backface-visibility:hidden] [transform:rotateX(180deg)]">
+        <div className="absolute inset-0 flex flex-col justify-center gap-0.5 rounded-md bg-mint-surface px-3 [backface-visibility:hidden] [transform:rotateX(180deg)]">
           <span className="flex items-center gap-1 text-xs leading-tight font-bold text-success">
             <CheckIcon />
             Claimed
           </span>
-          <span className="text-sm leading-tight font-bold text-ink tabular-nums">{formatCents(payee.cents)}</span>
+          <span className="text-sm leading-tight font-bold text-on-mint tabular-nums">{formatCents(payee.cents)}</span>
         </div>
       </m.div>
     </m.div>
