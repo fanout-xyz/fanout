@@ -132,8 +132,7 @@ export function createMockClient(ctx: FanoutClientContext): FanoutClient {
       await delay(150, 400);
       const b = load().batches[batchId];
       if (!b) throw new Error(`Payout ${batchId} not found.`);
-      const { platform: _platform, ...batch } = b;
-      return structuredClone(batch);
+      return structuredClone({ id: b.id, createdAt: b.createdAt, total: b.total, txHash: b.txHash, rows: b.rows });
     },
 
     async getClaim(claimSigner) {
