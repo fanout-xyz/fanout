@@ -14,6 +14,8 @@ export const fanoutKeys = {
   treasury: (platform?: string) => ["fanout", "treasury", platform?.toLowerCase()] as const,
   batches: (platform?: string) => ["fanout", "batches", platform?.toLowerCase()] as const,
   batch: (id: string) => ["fanout", "batch", id] as const,
+  payeeBalance: (address?: string) => ["fanout", "payee-balance", address?.toLowerCase()] as const,
+  payeeHistory: (address?: string) => ["fanout", "payee-history", address?.toLowerCase()] as const,
 };
 
 export function useTreasuryBalance() {
@@ -99,6 +101,39 @@ export function useMockExpireUnclaimed(batchId: string) {
       void queryClient.invalidateQueries({ queryKey: fanoutKeys.batch(batchId) });
       void queryClient.invalidateQueries({ queryKey: fanoutKeys.treasury(address) });
       void queryClient.invalidateQueries({ queryKey: fanoutKeys.batches(address) });
+    },
+  });
+}
+
+export function usePayeeBalance() {
+  const client = useFanoutClient();
+  const address = useAuth().user?.address;
+  return useQuery({
+    queryKey: fanoutKeys.payeeBalance(address),
+    queryFn: () => client.getPayeeBalance(address!),
+    enabled: !!address,
+  });
+}
+
+export function usePayeeHistory() {
+  const client = useFanoutClient();
+  const address = useAuth().user?.address;
+  return useQuery({
+    queryKey: fanoutKeys.payeeHistory(address),
+    queryFn: () => client.getPayeeHistory(address!),
+    enabled: !!address,
+  });
+}
+
+export function useSend() {
+  const client = useFanoutClient();
+  const address = useAuth().user?.address;
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ to, amount }: { to: `0x${string}`; amount: bigint }) => client.send(to, amount),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: fanoutKeys.payeeBalance(address) });
+      void queryClient.invalidateQueries({ queryKey: fanoutKeys.payeeHistory(address) });
     },
   });
 }
