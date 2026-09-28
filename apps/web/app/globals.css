@@ -1,0 +1,79 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+/* Brand tokens (from the brand kit, unmodified): colours, fonts, radii, shadow. */
+@import "./tokens.css";
+
+/* `dark:` follows the theme next-themes puts on <html> (not section-level data-theme markers). */
+@custom-variant dark (&:where(:root[data-theme="dark"], :root[data-theme="dark"] *));
+
+/*
+ * shadcn/ui reads the semantic variables below. They are mapped onto the brand
+ * tokens so stock components pick up Fanout colours. Deliberately NOT mapped here:
+ *   --color-muted  -> tokens.css owns it (secondary TEXT colour, #6B645A)
+ *   --radius-*     -> tokens.css owns them (10 / 14 / 20 / 28px)
+ *   --font-*       -> tokens.css owns them (Jakarta / Bricolage via next/font)
+ */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+}
+
+/* Base theme variables (--bg, --fg, --card, --border, --primary, ...) live in tokens.css. */
+:root {
+  --background: var(--bg);
+  --foreground: var(--fg);
+  --card-foreground: var(--fg);
+  --popover: var(--card);
+  --popover-foreground: var(--fg);
+  --primary-foreground: var(--primary-fg);
+  --secondary: var(--card);
+  --secondary-foreground: var(--fg);
+  --muted-foreground: var(--muted);
+  --accent: var(--card-raised);
+  --accent-foreground: var(--fg);
+  --destructive: var(--danger);
+  --input: var(--border);
+  --ring: var(--primary);
+  --radius: 14px;
+
+  --ease-out-soft: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+:root[data-theme="dark"] {
+  --popover: var(--card-raised);
+}
+
+/* Theme switch: fade colours for 150ms. The toggle adds this class briefly, and
+   never under prefers-reduced-motion. */
+.theme-transition,
+.theme-transition *,
+.theme-transition *::before,
+.theme-transition *::after {
+  transition:
+    background-color 150ms var(--ease-out-soft),
+    color 150ms var(--ease-out-soft) !important;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground font-sans;
+  }
+}
