@@ -1,7 +1,7 @@
 import { FinalCta } from "@/components/landing/final-cta";
 import { Hero } from "@/components/landing/hero/hero";
 import { HowItWorks } from "@/components/landing/how/how-it-works";
-import { MotionRoot } from "@/components/landing/motion-root";
+import { MotionRoot } from "@/components/motion-root";
 import { PayeeSection } from "@/components/landing/payee/payee-section";
 import { RaceSection } from "@/components/landing/race/race-section";
 import { SiteFooter } from "@/components/landing/site-footer";
