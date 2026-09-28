@@ -101,7 +101,7 @@
   --primary: #7A94FF;              /* links, focus rings, accents (6.5:1) */
   --primary-fg: #14142A;
   --primary-solid: #3355FF;        /* keep brand cobalt for buttons; cream text 5.1:1 */
-  --primary-solid-hover: #4466FF;
+  --primary-solid-hover: #2A49E6; /* cream text 6.1:1 (#4466FF was 4.27:1) */
   --primary-solid-fg: #FFF6EA;
   --success: #4CC99A;              /* 8.7:1 */
   --warning: #F0A94B;              /* 9.0:1 */
