@@ -2,6 +2,9 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth/provider";
+import { hashEmail } from "@/lib/email-hash";
+import { generateClaimKey } from "./claim-keys";
+import { saveClaims } from "./claim-link-store";
 import { useFanoutClient } from "./use-fanout-client";
 
 /** Query keys, scoped by address so switching accounts never shows stale data. */
@@ -38,5 +41,34 @@ export function useDeposit() {
   return useMutation({
     mutationFn: (amount: bigint) => client.deposit(amount),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: fanoutKeys.treasury(address) }),
+  });
+}
+
+export type NewPayoutRow = { email: string; amount: bigint; note: string };
+
+/**
+ * Creates a batch: one fresh claim key per row (only the address goes onchain),
+ * email hash as metadata. Keys are saved locally for the batch page (demo only).
+ */
+export function useCreatePayout() {
+  const client = useFanoutClient();
+  const address = useAuth().user?.address;
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (rows: NewPayoutRow[]) => {
+      const keyed = rows.map((row) => ({ row, key: generateClaimKey() }));
+      const { batchId, txHash } = await client.createBatchPayout(
+        keyed.map(({ row, key }) => ({ claimSigner: key.claimSigner, amount: row.amount, emailHash: hashEmail(row.email) })),
+      );
+      const saved = saveClaims(
+        batchId,
+        keyed.map(({ row, key }) => ({ claimSigner: key.claimSigner, privateKey: key.privateKey, email: row.email, note: row.note })),
+      );
+      return { batchId, txHash, linksSaved: saved };
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: fanoutKeys.treasury(address) });
+      void queryClient.invalidateQueries({ queryKey: fanoutKeys.batches(address) });
+    },
   });
 }
