@@ -12,9 +12,11 @@ import { useAuth } from "@/lib/auth/provider";
  */
 export function SignInCta({
   size = "default",
+  variant = "default",
   signedOutLabel = "Sign in",
 }: {
-  size?: "default" | "lg";
+  size?: "default" | "sm" | "lg";
+  variant?: "default" | "secondary" | "ghost";
   signedOutLabel?: string;
 }) {
   const { ready, authenticated, login } = useAuth();
@@ -27,7 +29,7 @@ export function SignInCta({
 
   if (ready && authenticated) {
     return (
-      <Button asChild size={size}>
+      <Button asChild size={size} variant={variant}>
         <Link href="/dashboard">Open dashboard</Link>
       </Button>
     );
@@ -36,6 +38,7 @@ export function SignInCta({
   return (
     <Button
       size={size}
+      variant={variant}
       disabled={!ready}
       onClick={() => {
         setPending(true);

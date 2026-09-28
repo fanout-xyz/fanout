@@ -1,0 +1,66 @@
+/* Fanout design tokens (Tailwind v4). Import once in app/globals.css:
+   @import "tailwindcss";
+   @import "./tokens.css";
+   Fonts are loaded with next/font in app/layout.tsx and exposed as
+   --font-display (Bricolage Grotesque 700) and --font-sans (Plus Jakarta Sans 400-800). */
+
+@theme {
+  /* Brand */
+  --color-ink: #1B1B2F;
+  --color-cream: #FFF6EA;
+  --color-cobalt: #3355FF;       /* primary actions, links, brand */
+  --color-cobalt-600: #2A49E6;   /* hover */
+  --color-cobalt-700: #2440D9;   /* pressed */
+  --color-tangerine: #FF6B3D;    /* accent only: highlights, illustrations, badges with ink text */
+  --color-tangerine-700: #C2410C;/* only if tangerine must be used as text */
+  --color-mint: #C9F2DC;         /* success surfaces, "paid" chips */
+
+  /* Neutrals (warm) */
+  --color-surface: #FFFFFF;      /* cards on cream */
+  --color-line: #E8DFD0;         /* borders, dividers */
+  --color-muted: #6B645A;        /* secondary text, 5.46:1 on cream */
+
+  /* Status (all at least 4.5:1 on cream and white) */
+  --color-success: #12805C;
+  --color-warning: #B45309;
+  --color-danger: #C8321E;
+
+  /* Type */
+  --font-display: var(--font-bricolage), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-jakarta), ui-sans-serif, system-ui, sans-serif;
+
+  /* Radius */
+  --radius-sm: 10px;   /* inputs, chips */
+  --radius-md: 14px;   /* buttons */
+  --radius-lg: 20px;   /* cards */
+  --radius-xl: 28px;   /* hero panels, phone sheets */
+
+  /* Elevation: flat by default, one soft shadow for floating layers */
+  --shadow-float: 0 8px 30px rgb(27 27 47 / 0.10);
+}
+
+:root {
+  --bg: var(--color-cream);
+  --fg: var(--color-ink);
+  --card: var(--color-surface);
+  --border: var(--color-line);
+  --primary: var(--color-cobalt);
+  --primary-fg: var(--color-cream);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #1B1B2F;
+    --fg: #FFF6EA;
+    --card: #252540;
+    --border: #34344F;
+    --primary: #6F8BFF;       /* 5.47:1 on ink */
+    --primary-fg: #1B1B2F;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #1B1B2F; --fg: #FFF6EA; --card: #252540; --border: #34344F;
+  --primary: #6F8BFF; --primary-fg: #1B1B2F;
+}
+
+body { background: var(--bg); color: var(--fg); font-family: var(--font-sans); }
