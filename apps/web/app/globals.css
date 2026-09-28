@@ -6,6 +6,12 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* Extra named colours taken from tokens.css's dark palette, for dark sections on the landing page. */
+@theme {
+  --color-ink-raised: #252540; /* dark card surface */
+  --color-cobalt-on-ink: #6F8BFF; /* primary on ink, 5.5:1 */
+}
+
 /*
  * shadcn/ui reads the semantic variables below. They are mapped onto the brand
  * tokens so stock components pick up Fanout colours. Deliberately NOT mapped here:

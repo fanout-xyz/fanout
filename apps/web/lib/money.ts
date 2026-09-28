@@ -24,3 +24,10 @@ export function parseUsd(input: string, decimals: number = config.stablecoin.dec
   if (!/^\d+(\.\d{1,2})?$/.test(cleaned)) return null;
   return parseUnits(cleaned, decimals);
 }
+
+const usdCents = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
+
+/** Integer cents -> "$1,234.56". For display-only numbers (landing, demos), not chain amounts. */
+export function formatCents(cents: number): string {
+  return usdCents.format(Math.round(cents) / 100);
+}

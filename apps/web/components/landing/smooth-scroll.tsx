@@ -18,7 +18,7 @@ export function SmoothScroll({ children }: { children: ReactNode }) {
 
   return (
     <>
-      {enabled && <ReactLenis root options={{ anchors: true, autoRaf: true }} />}
+      {enabled && <ReactLenis root options={{ anchors: { offset: -72 }, autoRaf: true }} />}
       {children}
     </>
   );
