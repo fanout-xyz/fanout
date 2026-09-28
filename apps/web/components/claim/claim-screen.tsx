@@ -1,11 +1,13 @@
 "use client";
 
 import { AnimatePresence, m } from "motion/react";
+import type { ReactNode } from "react";
 import { Logo } from "@/components/brand/logo";
 import { PetalsMark } from "@/components/brand/petals-mark";
 import { Button } from "@/components/ui/button";
 import { useTweenNumber } from "@/hooks/use-tween-number";
 import { formatCents } from "@/lib/money";
+import { cn } from "@/lib/utils";
 
 export type ClaimScreenState = "ready" | "claiming" | "success";
 
@@ -16,6 +18,17 @@ type Props = {
   note?: string;
   onClaim: () => void;
   reduced: boolean;
+  /** The landing mock shows the logo inside the phone; the real page has a top bar instead. */
+  showLogo?: boolean;
+  /** Button text in the ready state. */
+  actionLabel?: string;
+  /** Short line under the button (e.g. how sign-in works). */
+  hint?: string;
+  /** Plain-language error shown above the button. */
+  error?: string | null;
+  /** Shown under the success message (e.g. "See your balance"). */
+  successAction?: ReactNode;
+  className?: string;
 };
 
 const EASE_OUT = [0.2, 0.8, 0.2, 1] as const;
@@ -26,12 +39,27 @@ const EASE_OUT = [0.2, 0.8, 0.2, 1] as const;
  * Copy rules: dollars only, no crypto terms. It has no background of its own;
  * the parent sets it, plus `--petal-cut` to the same colour for the petals mark.
  */
-export function ClaimScreen({ state, amountCents, platform, note, onClaim, reduced }: Props) {
+export function ClaimScreen({
+  state,
+  amountCents,
+  platform,
+  note,
+  onClaim,
+  reduced,
+  showLogo = true,
+  actionLabel = "Claim with passkey",
+  hint,
+  error,
+  successAction,
+  className,
+}: Props) {
   return (
-    <div className="flex h-full flex-col px-5 pt-5 pb-6">
-      <div className="self-start">
-        <Logo width={88} height={18} className="h-[18px] w-auto" />
-      </div>
+    <div className={cn("flex h-full flex-col px-5 pt-5 pb-6", className)}>
+      {showLogo && (
+        <div className="self-start">
+          <Logo width={88} height={18} className="h-[18px] w-auto" />
+        </div>
+      )}
       <AnimatePresence mode="wait" initial={false}>
         {state === "success" ? (
           <m.div
@@ -42,6 +70,7 @@ export function ClaimScreen({ state, amountCents, platform, note, onClaim, reduc
             transition={{ duration: 0.22, ease: EASE_OUT }}
           >
             <Success amountCents={amountCents} reduced={reduced} />
+            {successAction && <div className="mt-10 w-full">{successAction}</div>}
           </m.div>
         ) : (
           <m.div
@@ -60,15 +89,21 @@ export function ClaimScreen({ state, amountCents, platform, note, onClaim, reduc
                 {note ? ` · ${note}` : ""}
               </p>
             </div>
+            {error && (
+              <p role="alert" className="mb-4 rounded-md bg-danger/10 px-4 py-3 text-center text-sm font-semibold text-danger">
+                {error}
+              </p>
+            )}
             <Button size="lg" className="h-14 w-full" onClick={onClaim} disabled={state === "claiming"} aria-busy={state === "claiming"}>
               {state === "claiming" ? (
                 <>
                   <Spinner /> Claiming…
                 </>
               ) : (
-                "Claim with passkey"
+                actionLabel
               )}
             </Button>
+            {hint && <p className="mt-3 text-center text-sm text-muted">{hint}</p>}
           </m.div>
         )}
       </AnimatePresence>

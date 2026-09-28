@@ -31,3 +31,8 @@ const usdCents = new Intl.NumberFormat("en-US", { style: "currency", currency: "
 export function formatCents(cents: number): string {
   return usdCents.format(Math.round(cents) / 100);
 }
+
+/** Base units -> integer cents (truncates sub-cent dust). For display components that take cents. */
+export function toCents(amount: bigint, decimals: number = config.stablecoin.decimals): number {
+  return decimals >= 2 ? Number(amount / 10n ** BigInt(decimals - 2)) : Number(amount * 10n ** BigInt(2 - decimals));
+}
