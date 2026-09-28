@@ -5,9 +5,12 @@ import { useAuth } from "@/lib/auth/provider";
 import { hashEmail } from "@/lib/email-hash";
 import { generateClaimKey } from "./claim-keys";
 import { saveClaims } from "./claim-link-store";
-import { mockRefundUnclaimed } from "./mock-client";
 import { NotFoundError } from "./types";
+import { erc20Abi } from "./abis";
+import { mockRefundUnclaimed } from "./mock-client";
+import { reader } from "./onchain-client";
 import { useFanoutClient } from "./use-fanout-client";
+import { config } from "@/lib/config";
 
 /** Query keys, scoped by address so switching accounts never shows stale data. */
 export const fanoutKeys = {
@@ -16,7 +19,25 @@ export const fanoutKeys = {
   batch: (id: string) => ["fanout", "batch", id] as const,
   payeeBalance: (address?: string) => ["fanout", "payee-balance", address?.toLowerCase()] as const,
   payeeHistory: (address?: string) => ["fanout", "payee-history", address?.toLowerCase()] as const,
+  accountFunds: (address?: string) => ["fanout", "account-funds", address?.toLowerCase()] as const,
 };
+
+/** What the signed-in account holds itself (not the payout balance): AUSD to deposit, MON for fees. */
+export function useAccountFunds() {
+  const address = useAuth().user?.address;
+  return useQuery({
+    queryKey: fanoutKeys.accountFunds(address),
+    queryFn: async () => {
+      const [ausd, mon] = await Promise.all([
+        reader().readContract({ address: config.stablecoin.address, abi: erc20Abi, functionName: "balanceOf", args: [address!] }),
+        reader().getBalance({ address: address! }),
+      ]);
+      return { ausd, mon };
+    },
+    enabled: !!address,
+    refetchInterval: 15_000,
+  });
+}
 
 export function useTreasuryBalance() {
   const client = useFanoutClient();
@@ -44,7 +65,10 @@ export function useDeposit() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (amount: bigint) => client.deposit(amount),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: fanoutKeys.treasury(address) }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: fanoutKeys.treasury(address) });
+      void queryClient.invalidateQueries({ queryKey: fanoutKeys.accountFunds(address) });
+    },
   });
 }
 
@@ -91,7 +115,7 @@ export function useBatch(batchId: string) {
   });
 }
 
-/** Demo only: simulates claim expiry so unclaimed rows return to the balance. */
+/** Demo only (mock mode): simulates claim expiry so unclaimed rows return to the balance. */
 export function useMockExpireUnclaimed(batchId: string) {
   const address = useAuth().user?.address;
   const queryClient = useQueryClient();

@@ -7,8 +7,8 @@ import { DepositDialog } from "@/components/dashboard/deposit-dialog";
 import { Spinner, TxProgress, type TxStage } from "@/components/tx-progress";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { parsePayoutCsv, withoutErrorRows, type PayoutSheet } from "@/lib/csv";
 import { config } from "@/lib/config";
+import { parsePayoutCsv, withoutErrorRows, type PayoutSheet } from "@/lib/csv";
 import { useCreatePayout, useTreasuryBalance } from "@/lib/fanout/queries";
 import { formatUsd } from "@/lib/money";
 import { CsvDropzone } from "./csv-dropzone";
@@ -184,7 +184,7 @@ export function NewPayoutFlow() {
             )}
             {!busy && valid && (
               <p className="text-xs text-muted">
-                Each person gets a claim link. Unclaimed money returns to your balance.
+                Each person gets a claim link. After 30 days, unclaimed money can be returned to your balance.
                 {config.useMock ? " Demo mode: nothing real is sent." : ""}
               </p>
             )}

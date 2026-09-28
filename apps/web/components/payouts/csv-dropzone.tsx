@@ -3,7 +3,7 @@
 import { useId, useRef, useState, type DragEvent } from "react";
 import { Spinner } from "@/components/tx-progress";
 import { Button } from "@/components/ui/button";
-import { MAX_FILE_BYTES } from "@/lib/csv";
+import { MAX_FILE_BYTES, MAX_ROWS } from "@/lib/csv";
 import { cn } from "@/lib/utils";
 
 type Props = {
@@ -64,7 +64,7 @@ export function CsvDropzone({ onLoad, onError }: Props) {
       <div>
         <p className="text-lg font-bold">Drop a CSV here</p>
         <p id={hintId} className="mt-1 text-sm text-muted">
-          Columns: <span className="font-semibold text-foreground">email, amount, note</span>. Amounts in dollars, up to 500 rows.
+          Columns: <span className="font-semibold text-foreground">email, amount, note</span>. Amounts in dollars, up to {MAX_ROWS} people.
         </p>
       </div>
       <div className="flex flex-wrap justify-center gap-3">

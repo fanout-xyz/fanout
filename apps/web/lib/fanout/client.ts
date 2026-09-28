@@ -18,8 +18,8 @@ import type {
  * contracts directly; they go through this.
  *
  * Agreed with contracts. Don't change a signature without telling both sides.
- * Methods marked PROPOSED are not agreed yet; the mock implements them so the
- * pages work, and contracts can accept, rename or reject them.
+ * listBatches and getPayeeHistory aren't contract functions: they're assembled from
+ * contract reads (and, for history, what this device recorded) until an indexer exists.
  */
 export interface FanoutClient {
   getTreasuryBalance(platform: Address): Promise<bigint>;
@@ -41,7 +41,7 @@ export interface FanoutClient {
 export type FanoutClientContext = {
   /** The signed-in user's address; the implicit sender for deposit/createBatchPayout/send. */
   account?: Address;
-  /** Required by the onchain client for writes. The mock ignores it. */
+  /** Signs platform and payee writes (Privy embedded wallet, via wagmi). */
   walletClient?: WalletClient;
 };
 

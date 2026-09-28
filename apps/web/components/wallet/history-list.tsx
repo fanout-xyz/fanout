@@ -31,7 +31,9 @@ export function HistoryList() {
           </Button>
         </div>
       ) : history.data.length === 0 ? (
-        <p className="rounded-md border border-line bg-surface px-4 py-6 text-center text-muted">Nothing here yet.</p>
+        <p className="rounded-md border border-line bg-surface px-4 py-6 text-center text-muted">
+          Nothing here yet. Activity from this device shows here.
+        </p>
       ) : (
         <ul className="overflow-hidden rounded-lg border border-line bg-surface">
           {history.data.map((item) => {

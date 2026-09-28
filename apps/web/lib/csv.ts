@@ -1,10 +1,12 @@
 import Papa from "papaparse";
 import { normalizeEmail } from "./email-hash";
+import { config } from "./config";
 import { parseUsd } from "./money";
 
 /** Payout CSV: columns email, amount, note (note optional). Header names are case-insensitive. */
 
-export const MAX_ROWS = 500;
+/** One payout is one transaction; the contract caps rows per batch (BatchPayout.MAX_ROWS). */
+export const MAX_ROWS = config.maxRowsPerBatch;
 export const MAX_NOTE_LENGTH = 140;
 export const MAX_FILE_BYTES = 1_000_000;
 

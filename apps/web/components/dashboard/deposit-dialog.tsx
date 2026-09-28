@@ -79,7 +79,7 @@ export function DepositDialog() {
         <DialogHeader>
           <DialogTitle className="font-display text-2xl tracking-[-0.015em]">Add to payout balance</DialogTitle>
           <DialogDescription>
-            {config.useMock ? "Demo mode: this deposit is simulated." : "Deposit dollars to fund your next payout."}
+            {config.useMock ? "Demo mode: this deposit is simulated." : "Moves AUSD from your account into your payout balance on Monad."}
           </DialogDescription>
         </DialogHeader>
 

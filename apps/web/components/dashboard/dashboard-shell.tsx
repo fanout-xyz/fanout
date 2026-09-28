@@ -56,9 +56,9 @@ export function DashboardShell({ children }: { children: ReactNode }) {
           {navLinks}
         </nav>
         <div className="mt-auto flex flex-col gap-3 px-2">
-          {config.useMock && (
-            <p className="text-xs text-muted">Demo mode. Balances and transactions are simulated.</p>
-          )}
+          <p className="text-xs text-muted">
+            {config.useMock ? "Demo mode. Balances and transactions are simulated." : "Monad testnet"}
+          </p>
           {authenticated && (
             <>
               <p className="truncate text-sm font-semibold" title={user?.email}>

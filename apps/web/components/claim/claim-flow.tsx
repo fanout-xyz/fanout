@@ -35,7 +35,7 @@ function ClaimForKey({ privateKey }: { privateKey: Hex | null | undefined }) {
 
   const client = useFanoutClient();
   const queryClient = useQueryClient();
-  const { ready, authenticated, user, login, logout, provider } = useAuth();
+  const { ready, authenticated, user, login, logout } = useAuth();
   const reduced = useReducedMotion() ?? false;
   const [phase, setPhase] = useState<ClaimScreenState>("ready");
   const [error, setError] = useState<string | null>(null);
@@ -142,7 +142,7 @@ function ClaimForKey({ privateKey }: { privateKey: Hex | null | undefined }) {
           reduced={reduced}
           showLogo={false}
           actionLabel={`Claim ${amountLabel}`}
-          hint={!authenticated ? signInHint(provider) : undefined}
+          hint={!authenticated ? signInHint() : undefined}
           error={error}
           successAction={<BalanceLink />}
         />
@@ -163,10 +163,8 @@ function ClaimForKey({ privateKey }: { privateKey: Hex | null | undefined }) {
   );
 }
 
-function signInHint(provider: "privy" | "mock") {
-  return provider === "privy"
-    ? "You'll confirm with your email or a passkey. Nothing to install."
-    : "You'll confirm with your email. Nothing to install.";
+function signInHint() {
+  return "You'll confirm with your email or a passkey. Nothing to install.";
 }
 
 /** Payee-facing wording; the raw error is logged, never shown. */
