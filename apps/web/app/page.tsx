@@ -1,30 +1,54 @@
-"use client";
+import { SignInCta } from "@/components/sign-in-cta";
 
-import { Button } from "@/components/ui/button";
-import { useAuth } from "@/lib/auth/provider";
-import { config } from "@/lib/config";
+const steps = [
+  {
+    title: "Deposit once",
+    body: "Fund your payout balance in dollars. One deposit covers every payee in the run.",
+  },
+  {
+    title: "Upload who gets what",
+    body: "A CSV with email, amount and a note. We check it before anything moves.",
+  },
+  {
+    title: "Everyone is paid at once",
+    body: "One approval pays the whole list. Each payee gets a link and claims with their email.",
+  },
+];
 
-// Temporary scaffold check. Replaced by the landing page in the next step.
-export default function Home() {
-  const { ready, authenticated, user, login, logout, provider } = useAuth();
-
+export default function Landing() {
   return (
-    <main className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center gap-4 p-6">
-      <h1 className="text-2xl font-semibold">Fanout scaffold</h1>
-      <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
-        <dt className="text-muted-foreground">Client</dt>
-        <dd>{config.useMock ? "mock" : "onchain"}</dd>
-        <dt className="text-muted-foreground">Auth</dt>
-        <dd>{provider}</dd>
-        <dt className="text-muted-foreground">Signed in</dt>
-        <dd>{ready ? (authenticated ? user?.email : "no") : "…"}</dd>
-      </dl>
-      {ready &&
-        (authenticated ? (
-          <Button variant="outline" onClick={() => void logout()}>Sign out</Button>
-        ) : (
-          <Button onClick={login}>Sign in</Button>
-        ))}
-    </main>
+    <div className="flex flex-1 flex-col">
+      <header className="mx-auto flex w-full max-w-5xl items-center justify-between px-4 py-5 sm:px-6">
+        <span className="text-lg font-semibold tracking-tight">Fanout</span>
+        <SignInCta />
+      </header>
+
+      <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col px-4 sm:px-6">
+        <section className="flex flex-col items-start gap-6 py-16 sm:py-24">
+          <h1 className="max-w-3xl text-4xl font-semibold tracking-tight text-balance sm:text-6xl">
+            Global payouts that settle in one block, not five business days.
+          </h1>
+          <p className="max-w-xl text-lg text-pretty text-muted-foreground">
+            Pay creators and freelancers abroad from a single deposit. Their money lands in
+            seconds, in dollars, and they claim it with just their email.
+          </p>
+          <SignInCta size="lg" signedOutLabel="Start paying people" />
+        </section>
+
+        <section className="grid gap-8 border-t py-12 sm:grid-cols-3 sm:gap-6">
+          {steps.map((step, i) => (
+            <div key={step.title} className="flex flex-col gap-2">
+              <span className="text-sm text-muted-foreground tabular-nums">0{i + 1}</span>
+              <h2 className="font-medium">{step.title}</h2>
+              <p className="text-sm text-pretty text-muted-foreground">{step.body}</p>
+            </div>
+          ))}
+        </section>
+      </main>
+
+      <footer className="mx-auto w-full max-w-5xl px-4 py-6 text-sm text-muted-foreground sm:px-6">
+        Testnet demo. No real funds move.
+      </footer>
+    </div>
   );
 }
