@@ -44,13 +44,10 @@ export const metadata: Metadata = {
   twitter: { card: "summary_large_image", title, description, images: ["/og-image.png"] },
 };
 
-// Per-theme browser chrome colour (values mirror --bg in tokens.css). ThemeColorSync
-// updates these when the user picks Light or Dark explicitly.
+// Browser chrome colour for the default (light) theme; mirrors --bg in tokens.css.
+// ThemeColorSync switches it when the user picks Dark or System.
 export const viewport: Viewport = {
-  themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#FFF6EA" },
-    { media: "(prefers-color-scheme: dark)", color: "#14142A" },
-  ],
+  themeColor: "#FFF6EA",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

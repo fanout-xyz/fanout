@@ -21,7 +21,7 @@ import { batchToCsv } from "@/lib/batch-export";
 import { explorerTxUrl } from "@/lib/chains";
 import { config } from "@/lib/config";
 import { buildClaimLink } from "@/lib/fanout/claim-keys";
-import { loadClaims, type StoredClaim } from "@/lib/fanout/claim-link-store";
+import { loadAllClaims, type StoredClaim } from "@/lib/fanout/claim-link-store";
 import type { PayoutStatus } from "@/lib/fanout/client";
 import { useBatch, useMockExpireUnclaimed } from "@/lib/fanout/queries";
 import { formatUsd } from "@/lib/money";
@@ -50,20 +50,19 @@ export function BatchDetail({ id }: { id: string }) {
   const [includeLinks, setIncludeLinks] = useState(false);
 
   // Claim keys live in this browser only (see claim-link-store). Read on the client.
-  const claims = useSyncExternalStore(subscribeNoop, () => loadClaimsCached(id), () => null);
+  const allClaims = useSyncExternalStore(subscribeNoop, loadAllClaims, () => null);
   const origin = useSyncExternalStore(subscribeNoop, () => window.location.origin, () => "");
 
   const rows: Row[] = useMemo(() => {
     if (!batch.data) return [];
-    const bySigner = new Map((claims ?? []).map((c) => [c.claimSigner.toLowerCase(), c]));
     return batch.data.rows.map((r, i) => ({
       n: i + 1,
       claimSigner: r.claimSigner,
       amount: r.amount,
       status: r.status,
-      claim: bySigner.get(r.claimSigner.toLowerCase()),
+      claim: allClaims?.[r.claimSigner.toLowerCase()],
     }));
-  }, [batch.data, claims]);
+  }, [batch.data, allClaims]);
 
   if (batch.isPending) {
     return (
@@ -103,7 +102,7 @@ export function BatchDetail({ id }: { id: string }) {
   const counts: Record<Filter, number> = { all: rows.length, sent: count("sent"), claimed: count("claimed"), refunded: count("refunded") };
   const visible = filter === "all" ? rows : rows.filter((r) => r.status === filter);
   const hasTx = b.txHash !== zeroHash;
-  const linksMissing = claims === null;
+  const linksMissing = rows.length > 0 && rows.every((r) => !r.claim);
 
   function exportCsv() {
     const csv = batchToCsv(
@@ -270,13 +269,6 @@ export function BatchDetail({ id }: { id: string }) {
       )}
     </div>
   );
-}
-
-// loadClaims parses JSON; cache by id so useSyncExternalStore gets a stable snapshot.
-const claimsCache = new Map<string, StoredClaim[] | null>();
-function loadClaimsCached(id: string) {
-  if (!claimsCache.has(id)) claimsCache.set(id, loadClaims(id));
-  return claimsCache.get(id)!;
 }
 
 function BackLink() {
