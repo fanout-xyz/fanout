@@ -1,114 +1,153 @@
 import "server-only";
 import { PrivyClient } from "@privy-io/node";
-import { createPublicClient, createWalletClient, http, isAddress, isHex, type Address, type Hex } from "viem";
+import { createPublicClient, createWalletClient, http, isAddress, isHex, parseEther, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { activeChain } from "@/lib/chains";
-import { claimVerifyingContract, config } from "@/lib/config";
+import { config } from "@/lib/config";
 import { hashEmail } from "@/lib/email-hash";
 import { claimEscrowAbi } from "./abis";
 import { recoverClaimSigner, signVerification } from "./claim-keys";
+import { ALL_CONTRACT_ERRORS, friendlyChainError, need } from "./onchain-client";
+import { NotFoundError } from "./types";
 
 /**
- * Submits claims for payees and pays the gas from a Fanout-owned wallet (RELAYER_PRIVATE_KEY),
- * since a payee's new wallet holds no MON.
+ * Server-side relayer: submits ClaimEscrow.claim() and pays its gas, so payees with
+ * brand-new accounts (no MON) can claim. After a claim it tops the recipient up with a little
+ * MON (only if they're nearly empty) so they can send from their account later.
  *
- * Before it does, it acts as the claim verifier: it checks the claimer's Privy session, and only
- * if one of their verified emails matches the email the payment was sent to does it co-sign with
- * VERIFIER_PRIVATE_KEY. ClaimEscrow refuses any claim without that co-signature, so a leaked link
- * alone can't be claimed, not even by calling the contract directly.
- * Every check below runs before any gas is spent, so junk requests cost nothing.
+ * It is also the claim verifier. ClaimEscrow refuses any claim without a co-signature from
+ * VERIFIER_PRIVATE_KEY, and we only give one after checking the claimer's Privy session: one of
+ * their verified emails must match the email the payment was sent to (the claim's onchain
+ * emailHash). So a leaked or forwarded link alone can't be claimed, not even by calling the
+ * contract directly. Every check runs before any gas is spent.
+ *
+ * Env (server only, never NEXT_PUBLIC): RELAYER_PRIVATE_KEY (a testnet-only key funded with MON),
+ * VERIFIER_PRIVATE_KEY (its address is ClaimEscrow.verifier), PRIVY_APP_SECRET, and optional
+ * RELAYER_TOPUP_MON (default 0.02) and RELAYER_TOPUP_BELOW_MON (0.005).
  */
 
-export class RelayError extends Error {
-  constructor(
-    message: string,
-    readonly status: number,
-  ) {
-    super(message);
-  }
-}
+export type RelayResult = { txHash: Hex; amount: bigint; toppedUp: boolean };
 
-// ClaimEscrow.Status: 0 Sent, 1 Claimed, 2 Refunded. An unknown claim has amount 0.
+/** A refusal whose message is safe to show the claimer as is. */
+export class ClaimRefused extends Error {}
+
+// ClaimEscrow.Status: 0 Sent, 1 Claimed, 2 Refunded.
 const SENT = 0;
 const CLAIMED = 1;
 
-const reader = createPublicClient({ chain: activeChain, transport: http() });
-
-function serverKey(name: "RELAYER_PRIVATE_KEY" | "VERIFIER_PRIVATE_KEY"): Hex {
+function serverKey(name: "RELAYER_PRIVATE_KEY" | "VERIFIER_PRIVATE_KEY"): Hex | null {
   const key = process.env[name];
-  if (!key) throw new RelayError(`Claims are switched off: ${name} isn't configured.`, 503);
-  return (key.startsWith("0x") ? key : `0x${key}`) as Hex;
+  return key && /^0x[0-9a-fA-F]{64}$/.test(key) ? (key as Hex) : null;
+}
+
+function relayerAccount() {
+  const key = serverKey("RELAYER_PRIVATE_KEY");
+  return key ? privateKeyToAccount(key) : null;
+}
+
+export function relayerConfigured(): boolean {
+  return relayerAccount() !== null && serverKey("VERIFIER_PRIVATE_KEY") !== null && !!process.env.PRIVY_APP_SECRET;
 }
 
 let privy: PrivyClient | null = null;
-function privyClient(): PrivyClient {
+function privyClient(): PrivyClient | null {
   const appSecret = process.env.PRIVY_APP_SECRET;
-  if (!config.privyAppId || !appSecret) throw new RelayError("Claims are switched off: PRIVY_APP_SECRET isn't configured.", 503);
+  if (!config.privyAppId || !appSecret) return null;
   return (privy ??= new PrivyClient({ appId: config.privyAppId, appSecret }));
 }
 
-/** Hashes of the emails Privy has verified for the signed-in user (email logins, not just profile data). */
-async function verifiedEmailHashes(accessToken: string): Promise<Set<Hex>> {
-  const client = privyClient();
+/** Hashes of the emails Privy has verified for the signed-in user. */
+async function verifiedEmailHashes(client: PrivyClient, accessToken: string): Promise<Set<Hex>> {
   let userId: string;
   try {
     ({ user_id: userId } = await client.utils().auth().verifyAccessToken(accessToken));
   } catch {
-    throw new RelayError("Your session has expired. Sign in again.", 401);
+    throw new ClaimRefused("Your session has expired. Sign in again to claim.");
   }
   const user = await client.users()._get(userId);
   return new Set(user.linked_accounts.flatMap((a) => (a.type === "email" && a.verified_at ? [hashEmail(a.address)] : [])));
 }
-
-// One transaction at a time, so concurrent claims don't pick the same nonce.
-let queue: Promise<unknown> = Promise.resolve();
 
 export async function relayClaim(input: {
   claimSigner: unknown;
   recipient: unknown;
   signature: unknown;
   accessToken: string | null;
-}): Promise<Hex> {
+}): Promise<RelayResult> {
   const { claimSigner, recipient, signature, accessToken } = input;
-  if (!accessToken) throw new RelayError("Sign in to claim this payment.", 401);
-  if (typeof claimSigner !== "string" || !isAddress(claimSigner)) throw new RelayError("Bad claim.", 400);
-  if (typeof recipient !== "string" || !isAddress(recipient)) throw new RelayError("Bad recipient.", 400);
-  if (typeof signature !== "string" || !isHex(signature)) throw new RelayError("Bad signature.", 400);
+  if (typeof claimSigner !== "string" || !isAddress(claimSigner)) throw new NotFoundError("This payment link isn't valid.");
+  if (typeof recipient !== "string" || !isAddress(recipient)) throw new Error("Your account isn't ready. Sign in again.");
+  if (typeof signature !== "string" || !isHex(signature) || signature.length !== 132) throw new NotFoundError("This payment link isn't valid.");
+  if (!accessToken) throw new ClaimRefused("Sign in to claim this payment.");
 
-  const escrow = claimVerifyingContract();
-  const account = privateKeyToAccount(serverKey("RELAYER_PRIVATE_KEY"));
+  const account = relayerAccount();
   const verifierKey = serverKey("VERIFIER_PRIVATE_KEY");
-
-  const [amount, , status, emailHash] = await reader.readContract({ address: escrow, abi: claimEscrowAbi, functionName: "getClaim", args: [claimSigner] });
-  if (amount === 0n) throw new RelayError("This payment link isn't valid.", 404);
-  if (status === CLAIMED) throw new RelayError("This payment has already been claimed.", 409);
-  if (status !== SENT) throw new RelayError("This payment was returned to the sender.", 410);
-
-  const message = { recipient: recipient as Address, claimContract: escrow, chainId: activeChain.id };
-  const signer = await recoverClaimSigner(message, signature).catch(() => null);
-  if (signer?.toLowerCase() !== claimSigner.toLowerCase()) throw new RelayError("Bad signature.", 400);
-
-  // The email check: the heart of the verifier.
-  const emails = await verifiedEmailHashes(accessToken);
-  if (!emails.has(emailHash)) {
-    throw new RelayError("This payment was sent to a different email. Sign in with the email address it was sent to.", 403);
+  const privyApi = privyClient();
+  if (!account || !verifierKey || !privyApi) {
+    console.error("[relay] RELAYER_PRIVATE_KEY, VERIFIER_PRIVATE_KEY or PRIVY_APP_SECRET is not set");
+    throw new Error("Claiming isn't available right now. Try again later.");
   }
-  const verification = await signVerification(verifierKey, { ...message, claimSigner });
 
-  const run = async () => {
-    const { request } = await reader.simulateContract({
-      account,
+  const publicClient = createPublicClient({ chain: activeChain, transport: http() });
+  const wallet = createWalletClient({ account, chain: activeChain, transport: http() });
+  const escrow = need(config.contracts.claimEscrow, "NEXT_PUBLIC_CLAIM_ESCROW_ADDRESS");
+
+  try {
+    const [amount, , status, emailHash] = await publicClient.readContract({
       address: escrow,
       abi: claimEscrowAbi,
-      functionName: "claim",
-      args: [claimSigner, recipient as Address, signature, verification],
+      functionName: "getClaim",
+      args: [claimSigner as Address],
     });
-    const hash = await createWalletClient({ account, chain: activeChain, transport: http() }).writeContract(request);
-    const receipt = await reader.waitForTransactionReceipt({ hash });
-    if (receipt.status !== "success") throw new RelayError("The claim transaction failed.", 502);
-    return hash;
-  };
-  const result = queue.then(run, run);
-  queue = result.catch(() => undefined);
-  return result;
+    if (amount === 0n) throw new NotFoundError("This payment link isn't valid.");
+    if (status === CLAIMED) throw new ClaimRefused("This payment has already been claimed.");
+    if (status !== SENT) throw new ClaimRefused("This payment was returned to the sender.");
+
+    // The link signature must match before we look anyone up or co-sign.
+    const message = { recipient: recipient as Address, claimContract: escrow, chainId: activeChain.id };
+    const linkSigner = await recoverClaimSigner(message, signature as Hex).catch(() => null);
+    if (linkSigner?.toLowerCase() !== claimSigner.toLowerCase()) throw new NotFoundError("This payment link isn't valid.");
+
+    const emails = await verifiedEmailHashes(privyApi, accessToken);
+    if (!emails.has(emailHash)) {
+      throw new ClaimRefused("This payment was sent to a different email. Sign in with the email address it was sent to.");
+    }
+    const verification = await signVerification(verifierKey, { ...message, claimSigner: claimSigner as Address });
+
+    // Dry run first: anything else wrong reverts here and costs no gas.
+    const { request } = await publicClient.simulateContract({
+      account,
+      address: escrow,
+      abi: [...claimEscrowAbi, ...ALL_CONTRACT_ERRORS],
+      functionName: "claim",
+      args: [claimSigner as Address, recipient as Address, signature as Hex, verification],
+    });
+    const txHash = await wallet.writeContract(request);
+    const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
+    if (receipt.status !== "success") throw new Error("The claim failed onchain. Nothing was claimed. Try again.");
+
+    return { txHash, amount, toppedUp: await topUp(publicClient, wallet, recipient as Address) };
+  } catch (err) {
+    if (err instanceof ClaimRefused || err instanceof NotFoundError) throw err;
+    throw friendlyChainError(err);
+  }
+}
+
+/** Best effort: a failed top-up never fails the claim. */
+async function topUp(
+  publicClient: ReturnType<typeof createPublicClient>,
+  wallet: ReturnType<typeof createWalletClient>,
+  to: Address,
+): Promise<boolean> {
+  try {
+    const amount = parseEther(process.env.RELAYER_TOPUP_MON || "0.02");
+    const below = parseEther(process.env.RELAYER_TOPUP_BELOW_MON || "0.005");
+    if (amount === 0n || (await publicClient.getBalance({ address: to })) >= below) return false;
+    const hash = await wallet.sendTransaction({ account: wallet.account!, chain: activeChain, to, value: amount });
+    await publicClient.waitForTransactionReceipt({ hash });
+    return true;
+  } catch (err) {
+    console.error("[relay] top-up failed", err instanceof Error ? err.message : err);
+    return false;
+  }
 }

@@ -248,7 +248,7 @@ A claim is unlocked by a one-time key that lives only in the payee's link. The w
 2. The private key goes only into the link, `/claim#k=<key>`. Browsers never send the part after `#` to a server.
 3. On the claim page, the key signs the recipient address, the ClaimEscrow address and the chain id, as an EIP-191 personal message.
 4. `claim(...)` recovers the signer and checks that it equals `claimSigner`.
-5. **The verifier co-signs.** The claim page sends the claim to the web app's relayer (`apps/web/app/api/claim`, `lib/fanout/relayer.ts`) with the payee's Privy session token. The server looks up the payee's **verified** emails in Privy, and only if one of them hashes to the claim's onchain `emailHash` does it sign `keccak256(abi.encode(VERIFY_TAG, claimSigner, recipient, address(this), block.chainid))` with the verifier key. The contract rejects any claim without that co-signature (`BadVerification`).
+5. **The verifier co-signs.** The claim page sends the claim to the web app's relayer (`apps/web/app/api/relay/claim`, `lib/fanout/relayer.ts`) with the payee's Privy session token. The server looks up the payee's **verified** emails in Privy, and only if one of them hashes to the claim's onchain `emailHash` does it sign `keccak256(abi.encode(VERIFY_TAG, claimSigner, recipient, address(this), block.chainid))` with the verifier key. The contract rejects any claim without that co-signature (`BadVerification`).
 
 So a leaked or forwarded link is useless without access to the payee's inbox, and the verifier key alone is useless without the link. Calling the contract directly doesn't skip the check.
 
