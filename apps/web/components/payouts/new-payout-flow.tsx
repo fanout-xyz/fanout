@@ -25,12 +25,16 @@ export function NewPayoutFlow() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [screened, setScreened] = useState(false);
   const [stage, setStage] = useState<TxStage | null>(null);
+  // Balance when the payout was approved. After it lands the query refetches the lower balance,
+  // which would otherwise have the total subtracted a second time in "Balance after".
+  const [balanceAtApprove, setBalanceAtApprove] = useState<bigint | undefined>(undefined);
+  const shownBalance = stage !== null && balanceAtApprove !== undefined ? balanceAtApprove : balance.data;
 
   const sheet = loaded?.sheet;
   const people = sheet?.rows.length ?? 0;
   const hasRowErrors = !!sheet && sheet.errorRowCount > 0;
   const hasFileErrors = !!sheet && sheet.fileErrors.length > 0;
-  const shortfall = sheet && balance.data !== undefined && sheet.total > balance.data ? sheet.total - balance.data : 0n;
+  const shortfall = sheet && shownBalance !== undefined && sheet.total > shownBalance ? sheet.total - shownBalance : 0n;
   const valid = !!sheet && people > 0 && !hasRowErrors && !hasFileErrors;
   const busy = stage !== null;
   const canApprove = valid && screened && shortfall === 0n && balance.isSuccess && !busy;
@@ -53,6 +57,7 @@ export function NewPayoutFlow() {
 
   function approve() {
     if (!sheet || !canApprove) return;
+    setBalanceAtApprove(balance.data);
     setStage("preparing");
     createPayout.mutate(
       sheet.rows.map((r) => ({ email: r.email, amount: r.amount!, note: r.note })),
@@ -75,10 +80,10 @@ export function NewPayoutFlow() {
         { label: "Total", value: formatUsd(sheet.total) },
         {
           label: "Balance after",
-          value: balance.data === undefined ? null : shortfall > 0n ? "Not enough" : formatUsd(balance.data - sheet.total),
+          value: shownBalance === undefined ? null : shortfall > 0n ? "Not enough" : formatUsd(shownBalance - sheet.total),
         },
       ],
-    [sheet, people, balance.data, shortfall],
+    [sheet, people, shownBalance, shortfall],
   );
 
   return (
@@ -157,7 +162,7 @@ export function NewPayoutFlow() {
             {shortfall > 0n && (
               <div role="alert" className="flex flex-col gap-3 rounded-md bg-danger/10 p-3">
                 <p className="text-sm font-semibold text-danger">
-                  This payout is {formatUsd(shortfall)} more than your balance of {formatUsd(balance.data!)}.
+                  This payout is {formatUsd(shortfall)} more than your balance of {formatUsd(shownBalance!)}.
                 </p>
                 <DepositDialog />
               </div>

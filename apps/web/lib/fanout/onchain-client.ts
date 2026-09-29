@@ -20,6 +20,8 @@ import { NotFoundError, type PayoutStatus } from "./types";
  */
 
 const STATUS: readonly PayoutStatus[] = ["sent", "claimed", "refunded"];
+/** How many of the newest batches listBatches scans (across all platforms) without an indexer. */
+const LIST_SCAN_LIMIT = 200;
 
 let publicClient: PublicClient | null = null;
 function reader(): PublicClient {
@@ -56,7 +58,7 @@ export function createOnchainClient(ctx: FanoutClientContext): FanoutClient {
     return hash;
   }
 
-  return {
+  const client: FanoutClient = {
     async getTreasuryBalance(platform) {
       return reader().readContract({ address: addr.treasury(), abi: treasuryAbi, functionName: "balanceOf", args: [platform] });
     },
@@ -123,11 +125,22 @@ export function createOnchainClient(ctx: FanoutClientContext): FanoutClient {
     },
 
     async claim(claimSigner, recipient, signature) {
-      // TODO(gas): the payee's new wallet holds no MON. This needs a relayer or gas
-      // sponsorship; the signature already binds the recipient, so anyone can submit it.
-      const { account } = writer();
-      const txHash = await write({ account, chain: activeChain, address: addr.claimEscrow(), abi: claimEscrowAbi, functionName: "claim", args: [claimSigner, recipient, signature] });
-      return { txHash };
+      // The payee's new wallet holds no MON, so our relayer submits the claim and pays the gas
+      // (app/api/claim). The signature binds the recipient, so the relayer can't redirect it.
+      let res: Response;
+      try {
+        res = await fetch("/api/claim", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ claimSigner, recipient, signature }),
+        });
+      } catch {
+        throw new Error("Couldn't reach the server. Check your connection.");
+      }
+      const data = (await res.json().catch(() => ({}))) as { txHash?: Hex; error?: string };
+      if (res.status === 404) throw new NotFoundError(data.error ?? "This payment link isn't valid.");
+      if (!res.ok || !data.txHash) throw new Error(data.error ?? "Something went wrong and nothing was claimed.");
+      return { txHash: data.txHash };
     },
 
     async getPayeeBalance(address) {
@@ -141,12 +154,30 @@ export function createOnchainClient(ctx: FanoutClientContext): FanoutClient {
       return { txHash };
     },
 
-    async listBatches() {
-      throw new Error("Batch history isn't available onchain yet (needs the indexer).");
+    // Stopgap until the indexer: scan the newest batches onchain and keep the platform's own.
+    async listBatches(platform) {
+      const next = await reader().readContract({ address: addr.batchPayout(), abi: batchPayoutAbi, functionName: "nextBatchId" });
+      const ids: bigint[] = [];
+      for (let id = next - 1n; id >= 1n && ids.length < LIST_SCAN_LIMIT; id--) ids.push(id);
+      const headers = await reader().multicall({
+        allowFailure: false,
+        contracts: ids.map((id) => ({ address: addr.batchPayout(), abi: batchPayoutAbi, functionName: "getBatch" as const, args: [id] as const })),
+      });
+      const mine = ids.filter((_, i) => headers[i][0].toLowerCase() === platform.toLowerCase());
+      const batches = await Promise.all(mine.map((id) => client.getBatch(id.toString())));
+      return batches.map((b) => ({
+        id: b.id,
+        createdAt: b.createdAt,
+        total: b.total,
+        txHash: b.txHash,
+        rowCount: b.rows.length,
+        claimedCount: b.rows.filter((r) => r.status === "claimed").length,
+      }));
     },
 
     async getPayeeHistory() {
       throw new Error("Wallet history isn't available onchain yet (needs the indexer).");
     },
   };
+  return client;
 }
