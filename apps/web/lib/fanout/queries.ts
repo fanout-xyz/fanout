@@ -14,6 +14,8 @@ export const fanoutKeys = {
   treasury: (platform?: string) => ["fanout", "treasury", platform?.toLowerCase()] as const,
   batches: (platform?: string) => ["fanout", "batches", platform?.toLowerCase()] as const,
   batch: (id: string) => ["fanout", "batch", id] as const,
+  payeeBalance: (address?: string) => ["fanout", "payee-balance", address?.toLowerCase()] as const,
+  payeeHistory: (address?: string) => ["fanout", "payee-history", address?.toLowerCase()] as const,
 };
 
 export function useTreasuryBalance() {
@@ -50,7 +52,8 @@ export type NewPayoutRow = { email: string; amount: bigint; note: string };
 
 /**
  * Creates a batch: one fresh claim key per row (only the address goes onchain),
- * email hash as metadata. Keys are saved locally for the batch page (demo only).
+ * email hash as metadata. Keys are saved in this browser BEFORE submitting; if that
+ * fails, nothing is sent (demo storage, see claim-link-store).
  */
 export function useCreatePayout() {
   const client = useFanoutClient();
@@ -59,14 +62,15 @@ export function useCreatePayout() {
   return useMutation({
     mutationFn: async (rows: NewPayoutRow[]) => {
       const keyed = rows.map((row) => ({ row, key: generateClaimKey() }));
-      const { batchId, txHash } = await client.createBatchPayout(
-        keyed.map(({ row, key }) => ({ claimSigner: key.claimSigner, amount: row.amount, emailHash: hashEmail(row.email) })),
-      );
       const saved = saveClaims(
-        batchId,
         keyed.map(({ row, key }) => ({ claimSigner: key.claimSigner, privateKey: key.privateKey, email: row.email, note: row.note })),
       );
-      return { batchId, txHash, linksSaved: saved };
+      if (!saved) {
+        throw new Error("Couldn't save the claim links in this browser, so nothing was sent. Allow site storage and try again.");
+      }
+      return client.createBatchPayout(
+        keyed.map(({ row, key }) => ({ claimSigner: key.claimSigner, amount: row.amount, emailHash: hashEmail(row.email) })),
+      );
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: fanoutKeys.treasury(address) });
@@ -97,6 +101,39 @@ export function useMockExpireUnclaimed(batchId: string) {
       void queryClient.invalidateQueries({ queryKey: fanoutKeys.batch(batchId) });
       void queryClient.invalidateQueries({ queryKey: fanoutKeys.treasury(address) });
       void queryClient.invalidateQueries({ queryKey: fanoutKeys.batches(address) });
+    },
+  });
+}
+
+export function usePayeeBalance() {
+  const client = useFanoutClient();
+  const address = useAuth().user?.address;
+  return useQuery({
+    queryKey: fanoutKeys.payeeBalance(address),
+    queryFn: () => client.getPayeeBalance(address!),
+    enabled: !!address,
+  });
+}
+
+export function usePayeeHistory() {
+  const client = useFanoutClient();
+  const address = useAuth().user?.address;
+  return useQuery({
+    queryKey: fanoutKeys.payeeHistory(address),
+    queryFn: () => client.getPayeeHistory(address!),
+    enabled: !!address,
+  });
+}
+
+export function useSend() {
+  const client = useFanoutClient();
+  const address = useAuth().user?.address;
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ to, amount }: { to: `0x${string}`; amount: bigint }) => client.send(to, amount),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: fanoutKeys.payeeBalance(address) });
+      void queryClient.invalidateQueries({ queryKey: fanoutKeys.payeeHistory(address) });
     },
   });
 }

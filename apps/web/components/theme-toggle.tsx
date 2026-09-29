@@ -5,18 +5,18 @@ import { useSyncExternalStore } from "react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
-const ORDER = ["system", "light", "dark"] as const;
+const ORDER = ["light", "dark", "system"] as const;
 type ThemeChoice = (typeof ORDER)[number];
 const LABEL: Record<ThemeChoice, string> = { system: "System", light: "Light", dark: "Dark" };
 
 const subscribeNoop = () => () => {};
 
-/** 36px round button cycling System -> Light -> Dark. */
+/** 36px round button cycling Light -> Dark -> System (light is the default). */
 export function ThemeToggle({ className }: { className?: string }) {
   const { theme, setTheme } = useTheme();
   // The stored theme is only known on the client; render a neutral icon until then.
   const mounted = useSyncExternalStore(subscribeNoop, () => true, () => false);
-  const current: ThemeChoice = mounted && ORDER.includes(theme as ThemeChoice) ? (theme as ThemeChoice) : "system";
+  const current: ThemeChoice = mounted && ORDER.includes(theme as ThemeChoice) ? (theme as ThemeChoice) : "light";
   const next = ORDER[(ORDER.indexOf(current) + 1) % ORDER.length];
 
   function cycle() {

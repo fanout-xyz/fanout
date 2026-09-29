@@ -57,10 +57,9 @@ export function NewPayoutFlow() {
     createPayout.mutate(
       sheet.rows.map((r) => ({ email: r.email, amount: r.amount!, note: r.note })),
       {
-        onSuccess: ({ batchId, linksSaved }) => {
+        onSuccess: ({ batchId }) => {
           setStage("done");
-          if (!linksSaved) toast.error("Payout sent, but claim links couldn't be saved in this browser.");
-          else toast.success(`Paid ${people} ${people === 1 ? "person" : "people"}`);
+          toast.success(`Paid ${people} ${people === 1 ? "person" : "people"}`);
           router.push(`/dashboard/payouts/${batchId}`);
         },
         onError: () => setStage(null),
