@@ -2,9 +2,29 @@
 
 Three Solidity contracts on Monad testnet that move the money for Fanout: **Treasury**, **BatchPayout** and **ClaimEscrow**. A platform deposits AUSD once, pays out a whole CSV in one transaction, and each payee claims their share with a one-time link. Unclaimed money goes back to the platform after expiry.
 
-**Status:** deployed to Monad testnet on 2026-09-29, with all 17 tests passing. The web app still runs against the mock backend. Next up is [connecting the web app](#web-app-integration). Target: deposit → batch → claim working end to end on testnet by **Oct 6**.
+**Status:** 17 tests passing, and two deployments on Monad testnet. The web app is connected to the **tAUSD** deployment, and Privy sign-in works. Next up is the first real deposit → batch → claim run. Target: working end to end on testnet by **Oct 6**.
 
 ## Deployed addresses (Monad testnet)
+
+There are two deployments of the same contracts. They differ only in the payout token.
+
+| Deployment | Payout token | Used by the web app | Why |
+| --- | --- | --- | --- |
+| **`monad-test-ausd`** | Our **tAUSD** (anyone can mint) | ✅ **Yes, now** | Agora's AUSD faucet on Monad testnet is empty (`requestFunds` reverts `InsufficientFunds()`), so there's no real AUSD to test with |
+| `chain-10143` | Real Agora **AUSD** | Not yet | Needed for the Agora "Best Cross-Border Payments" bounty. Switch to it before the demo; see [Switching to real AUSD](#switching-to-real-ausd) |
+
+### Active: `monad-test-ausd` (tAUSD), deployed 2026-09-29
+
+| Contract | Address | Deploy tx |
+| --- | --- | --- |
+| tAUSD token (`MockAUSD`) | [`0x34C2CFdE74D0edbABF2F4382CEbD9F600048d17E`](https://testnet.monadscan.com/address/0x34C2CFdE74D0edbABF2F4382CEbD9F600048d17E) | [`0xb532…cc5`](https://testnet.monadscan.com/tx/0xb532af2c2c3adb66b8d79443370f96b2785cbc2ad8a289f1a037eb860fb55cc5) |
+| Treasury | [`0x2ca2f7d60d3b7e97ffdF2A8949e874025bA8554C`](https://testnet.monadscan.com/address/0x2ca2f7d60d3b7e97ffdF2A8949e874025bA8554C) | [`0x158e…c71e`](https://testnet.monadscan.com/tx/0x158e1fd54da2c743a5538e9f5b0573073149c749362e7a2655d2b0c0c3e2c71e) |
+| ClaimEscrow | [`0xCE20c4883A5f7bE23AB8b441E2Ea123c3eEe289D`](https://testnet.monadscan.com/address/0xCE20c4883A5f7bE23AB8b441E2Ea123c3eEe289D) | [`0x691b…9da8`](https://testnet.monadscan.com/tx/0x691b82e3d3da2c2dfef6893737e932a47a6549f509e10b9250762df1ca8f9da8) |
+| BatchPayout | [`0x40E848Fc0F8a6d2779fCEF1DCaE329e274a4Def9`](https://testnet.monadscan.com/address/0x40E848Fc0F8a6d2779fCEF1DCaE329e274a4Def9) | [`0x01ac…c85b`](https://testnet.monadscan.com/tx/0x01ac7a8b1cfa6d78099b19edda87856bc6638779bc1797909845e5d6c1b8c85b) |
+
+Wiring: `ClaimEscrow.wire` [`0xc3cd…4d9a`](https://testnet.monadscan.com/tx/0xc3cd246287583e0901c0061113031718e262d443ec04050c46daaf0d2f064d9a), `Treasury.wire` [`0x86fc…719d`](https://testnet.monadscan.com/tx/0x86fc6a7b5e118084171c136777671022c4fbe7b0a6a3953916f954918d9e719d). Blocks 66636371 to 66636425. The token is named "Fanout Test AUSD" with symbol `tAUSD`, so explorers and wallets can't mistake it for Agora's token. Its `mint(address, amount)` is open to anyone. 10,000 tAUSD were minted to the first platform wallet, `0xA80f…9C0` ([tx](https://testnet.monadscan.com/tx/0xf52ce879bc3159278e32a21c071ec7ea7dbc7b01eb1b1215e908f2e743a65b76)).
+
+### Real AUSD: `chain-10143`, deployed 2026-09-29
 
 | Contract | Address | Deploy tx |
 | --- | --- | --- |
@@ -12,18 +32,20 @@ Three Solidity contracts on Monad testnet that move the money for Fanout: **Trea
 | ClaimEscrow | [`0x7AB0E50E02e900dc423AAF5858c8E70289B44F11`](https://testnet.monadscan.com/address/0x7AB0E50E02e900dc423AAF5858c8E70289B44F11) | [`0x6e82…74ff`](https://testnet.monadscan.com/tx/0x6e82b4f06a83ffa835aedbb5925910f3c94eb3953ee118c177f24a4fdf1374ff) |
 | BatchPayout | [`0x408640A93b9e11C2e7799fd3eB1975b5B7FC10F4`](https://testnet.monadscan.com/address/0x408640A93b9e11C2e7799fd3eB1975b5B7FC10F4) | [`0xe362…c32c`](https://testnet.monadscan.com/tx/0xe36217f20d10d6cfb869d324d1030c67ed8870d243f90ef95503410d46ffc32c) |
 
+Wiring: `ClaimEscrow.wire` [`0xbff8…a1bf`](https://testnet.monadscan.com/tx/0xbff8e33f2dc7ecf9978b59558a56803d5a1e519799e36eb7eacfab781e19a1bf), `Treasury.wire` [`0xb8c3…ae37`](https://testnet.monadscan.com/tx/0xb8c33747b28a0a3794088502b647cb4d9f27f51d29dbc31ebfd5c7c4b23bae37). Blocks 66494877 to 66494919. Payout token: Agora AUSD [`0xa9012a055bd4e0eDfF8Ce09f960291C09D5322dC`](https://testnet.monadscan.com/address/0xa9012a055bd4e0eDfF8Ce09f960291C09D5322dC). Agora's faucet for it is `0xd236c18D274E54FAccC3dd9DDA4b27965a73ee6C`: 10,000 AUSD per request, once a minute, up to 100,000 per wallet. It was empty as of 2026-09-29.
+
+### Shared settings
+
 | Setting | Value |
 | --- | --- |
-| Network | Monad testnet, chain id `10143`, RPC `https://testnet-rpc.monad.xyz` |
-| Payout token | Agora AUSD [`0xa9012a055bd4e0eDfF8Ce09f960291C09D5322dC`](https://testnet.monadscan.com/address/0xa9012a055bd4e0eDfF8Ce09f960291C09D5322dC), 6 decimals ($1 = `1_000_000`) |
+| Network | Monad testnet, chain id `10143`, RPC `https://testnet-rpc.monad.xyz`, explorer [Monadscan](https://testnet.monadscan.com) |
+| Token decimals | 6 ($1 = `1_000_000`) for both AUSD and tAUSD |
 | Deployer / owner | `0x978D459587b9807375E7A02ff403BED7E68d0b0e` (testnet-only wallet) |
 | Claim expiry (`claimTtl`) | 30 days (`2592000` seconds) |
 | Max rows per batch (`MAX_ROWS`) | 150 |
-| Wiring | `ClaimEscrow.wire` [`0xbff8…a1bf`](https://testnet.monadscan.com/tx/0xbff8e33f2dc7ecf9978b59558a56803d5a1e519799e36eb7eacfab781e19a1bf), `Treasury.wire` [`0xb8c3…ae37`](https://testnet.monadscan.com/tx/0xb8c33747b28a0a3794088502b647cb4d9f27f51d29dbc31ebfd5c7c4b23bae37) |
-| Blocks | 66494877 (Treasury) to 66494919 (last wire) |
 | Compiler | solc 0.8.30, EVM target `cancun`, optimizer on (200 runs) |
 
-The wiring was checked onchain after deploy. `Treasury.batchPayout`, `Treasury.claimEscrow`, `ClaimEscrow.treasury` and `ClaimEscrow.batchPayout` each hold the addresses above. The full deploy record lives in `ignition/deployments/chain-10143/`: `deployed_addresses.json` for the addresses, `journal.jsonl` for every transaction, and `artifacts/` for the exact ABIs and bytecode deployed.
+Both deployments were checked onchain after deploy: each contract points at the right token and at the other two contracts. Each deploy record lives in `ignition/deployments/<deployment-id>/`: `deployed_addresses.json`, `journal.jsonl` (every transaction) and `artifacts/` (the exact ABIs and bytecode deployed).
 
 ## Quick start
 
@@ -33,7 +55,9 @@ cd smart-contract
 pnpm build                   # compile contracts
 pnpm test                    # 17 tests on Hardhat's in-process network
 pnpm typecheck               # tsc over the config, tests and deploy module
-pnpm deploy:monad            # deploy to Monad testnet (needs .env, see below)
+pnpm deploy:monad:test-ausd # deploy tAUSD + contracts to Monad testnet (needs .env, see below)
+pnpm deploy:monad            # deploy contracts for real Agora AUSD
+pnpm export-abis             # copy ABIs + addresses into the web app (see Web app integration)
 ```
 
 The deployer key comes from `.env`, which is gitignored. Copy `.env.example` and fill it in:
@@ -43,7 +67,7 @@ MONAD_PRIVATE_KEY=0x...      # testnet-only wallet with MON from the Monad testn
 # MONAD_RPC_URL=             # optional; defaults to https://testnet-rpc.monad.xyz
 ```
 
-`hardhat.config.ts` loads `.env` with `dotenv`. Instead of the file, you can set the key as an environment variable, or store it encrypted with `pnpm hardhat keystore set MONAD_PRIVATE_KEY`. Deploying used about 0.24 MON.
+`hardhat.config.ts` loads `.env` with `dotenv`. Instead of the file, you can set the key as an environment variable, or store it encrypted with `pnpm hardhat keystore set MONAD_PRIVATE_KEY`. Each deploy used about 0.25–0.3 MON.
 
 ## Project structure
 
@@ -57,16 +81,22 @@ smart-contract/
 │   │   ├── ITreasury.sol         # what BatchPayout and ClaimEscrow call on Treasury
 │   │   └── IClaimEscrow.sol      # what BatchPayout calls on ClaimEscrow
 │   └── test/
-│       └── MockAUSD.sol          # 6-decimal ERC-20 with public mint, tests only
+│       └── MockAUSD.sol          # 6-decimal ERC-20 with public mint: tests, and "tAUSD" on testnet
 ├── test/
 │   └── Fanout.ts                 # node:test + viem; signs claims with the web app's claim-keys.ts
 ├── ignition/
-│   ├── modules/Fanout.ts         # deploy + wire module
-│   └── deployments/chain-10143/  # record of the Monad testnet deployment (commit this)
+│   ├── modules/
+│   │   ├── Fanout.ts             # deploy + wire for real AUSD; exports deployFanout()
+│   │   └── FanoutTestAusd.ts     # deploys tAUSD, then the same contracts for it
+│   └── deployments/              # deploy records (commit these)
+│       ├── monad-test-ausd/      # active: tAUSD
+│       └── chain-10143/          # real AUSD
+├── scripts/
+│   └── export-abis.ts            # writes ABIs + addresses to apps/web/lib/fanout/abis/contracts.generated.ts
 ├── hardhat.config.ts             # compiler settings + monadTestnet network
 ├── tsconfig.json                 # strict; "preserve" modules so tests can import apps/web
 ├── .env.example                  # template for the deployer key
-└── package.json                  # build / test / typecheck / deploy:monad scripts
+└── package.json                  # build / test / typecheck / deploy / export-abis scripts
 ```
 
 ## Stack
@@ -254,49 +284,56 @@ These contracts are unaudited and deployed to testnet only. They assume AUSD is 
 
 ## Deploying
 
-`pnpm deploy:monad` runs `ignition/modules/Fanout.ts`, which does these steps in order:
+Both deploy modules call the same `deployFanout()` in `ignition/modules/Fanout.ts`, which does these steps in order:
 
 1. `Treasury(ausd)`
 2. `ClaimEscrow(ausd, Treasury)`
 3. `BatchPayout(Treasury, ClaimEscrow, claimTtl)`
 4. `ClaimEscrow.wire(BatchPayout)` and `Treasury.wire(BatchPayout, ClaimEscrow)`
 
-| Parameter | Default |
-| --- | --- |
-| `ausd` | `0xa9012a055bd4e0eDfF8Ce09f960291C09D5322dC` (testnet AUSD) |
-| `claimTtl` | `2592000` (30 days) |
+| Command | Module | Token | Deployment id |
+| --- | --- | --- | --- |
+| `pnpm deploy:monad:test-ausd` | `FanoutTestAusd.ts` | Deploys `MockAUSD` (tAUSD) first, then uses it | `monad-test-ausd` |
+| `pnpm deploy:monad` | `Fanout.ts` | Parameter `ausd`, default real Agora AUSD | `chain-10143` |
 
-Override them with `--parameters params.json`, for example `{ "Fanout": { "claimTtl": "3600" } }`.
+`claimTtl` defaults to `2592000` (30 days). Override it with `--parameters params.json`, for example `{ "Fanout": { "claimTtl": "3600" } }`, using the module id as the key.
 
-Ignition remembers what it has already deployed. Running `pnpm deploy:monad` again with unchanged contracts does nothing. After changing a contract, deploy fresh with a new id, then update the addresses here and in the web app:
+Ignition remembers what it has already deployed. Running a deploy again with unchanged contracts does nothing. After changing a contract, deploy fresh with a new `--deployment-id`, then run `pnpm export-abis <new-id>` and update the addresses here:
 
 ```bash
-pnpm hardhat ignition deploy ignition/modules/Fanout.ts --network monadTestnet --deployment-id fanout-v2
+pnpm hardhat ignition deploy ignition/modules/FanoutTestAusd.ts --network monadTestnet --deployment-id monad-test-ausd-v2
 ```
 
-To try the module without spending MON, run `pnpm hardhat ignition deploy ignition/modules/Fanout.ts` against the in-process network. It needs a `--parameters` file pointing `ausd` at any address, because testnet AUSD doesn't exist locally.
+To try a module without spending MON, run it against the in-process network, for example `pnpm hardhat ignition deploy ignition/modules/FanoutTestAusd.ts`.
 
 ## Web app integration
 
-The web app (`apps/web`) was written against draft versions of these contracts. Every function name, argument order and return shape it uses is unchanged, so `apps/web/lib/fanout/onchain-client.ts` needs no changes. To switch it from the mock to the live contracts:
+The web app (`apps/web`) uses the live contracts when `NEXT_PUBLIC_USE_MOCK=false` in `apps/web/.env.local`. It needs no other contract settings:
 
-1. In `apps/web/.env.local`:
-   ```
-   NEXT_PUBLIC_USE_MOCK=false
-   NEXT_PUBLIC_TREASURY_ADDRESS=0x74a8D547daD96f478135E475360d719df1cA2BFa
-   NEXT_PUBLIC_BATCH_PAYOUT_ADDRESS=0x408640A93b9e11C2e7799fd3eB1975b5B7FC10F4
-   NEXT_PUBLIC_CLAIM_ESCROW_ADDRESS=0x7AB0E50E02e900dc423AAF5858c8E70289B44F11
-   ```
-2. Replace the placeholder ABIs in `apps/web/lib/fanout/abis/index.ts` with the deployed ones from `ignition/deployments/chain-10143/artifacts/`. The generated ABIs also include the custom errors, so failed transactions show readable reasons.
-3. Split CSVs larger than 150 rows into several `createBatch` calls.
-4. Run deposit → CSV → approve → claim on the live site.
+- `pnpm export-abis [deployment-id]` writes `apps/web/lib/fanout/abis/contracts.generated.ts`. That file holds the three ABIs (including custom errors, so failed transactions show readable reasons) and the deployed addresses, including the **payout token**, which it reads from the Treasury's constructor arguments. The default deployment id is `monad-test-ausd`.
+- `apps/web/lib/config.ts` defaults every address (token, Treasury, BatchPayout, ClaimEscrow) to that file. `NEXT_PUBLIC_*_ADDRESS` env vars still override them, but leave them empty. Setting the token address without matching contracts makes every deposit fail.
+- The CSV limit in `apps/web/lib/csv.ts` is 150 rows, matching `MAX_ROWS`.
+- Every function name, argument order and return shape the web app uses matches the contracts, so `onchain-client.ts` needed no changes.
+- Privy sign-in creates the embedded wallet itself if the user has none (`apps/web/lib/auth/privy.tsx`), and the dashboard sidebar shows the wallet address.
 
-Still to do on the web app side:
+### Switching to real AUSD
+
+When real testnet AUSD is available (the Agora faucet is refilled, or Agora sends some):
+
+1. `pnpm export-abis chain-10143`
+2. Restart `pnpm dev`, then get AUSD into the platform wallet (for example, `requestFunds(<wallet>)` on the faucet).
+3. Run deposit → batch → claim once, then update the table at the top of this README.
+
+The web app still labels the token "AUSD" either way (`config.stablecoin.symbol`).
+
+### Still to do on the web app side
+
 - **Gas for payees.** `claim` and `send` currently expect the payee's wallet to pay gas, and a new wallet has no MON. The contract already supports a relayer or gas sponsorship, because the signature binds the recipient.
 - **History.** Batch lists and payee history need the Envio indexer. It should read the `BatchCreated`, `ClaimOpened`, `Claimed`, `Refunded`, `Deposited` and `Withdrawn` events.
 
 ## Open questions
 
+- When will Agora refill the Monad testnet AUSD faucet? We asked on Discord on 2026-09-29. If there's no answer by around Oct 3, try another channel. Also confirm whether the bounty requires real AUSD in the demo.
 - Is 30 days the right claim expiry? It's a deploy parameter, so changing it means a redeploy but no code change.
 - Who pays gas for payee claims and sends: a relayer, or gas sponsored through Privy?
 - Does the web app expose `refund` and `withdraw`, or do they stay admin-only for the demo? Anyone can call `refund` after expiry, so a script or cron job could handle it.
