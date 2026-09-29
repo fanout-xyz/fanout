@@ -1,8 +1,8 @@
 "use client";
 
-import { PrivyProvider, usePrivy } from "@privy-io/react-auth";
+import { PrivyProvider, useCreateWallet, usePrivy } from "@privy-io/react-auth";
 import { WagmiProvider, createConfig } from "@privy-io/wagmi";
-import { useMemo, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, type ReactNode } from "react";
 import { getAddress } from "viem";
 import { http } from "wagmi";
 import { activeChain } from "@/lib/chains";
@@ -17,6 +17,20 @@ const wagmiConfig = createConfig({
 
 function PrivyBridge({ children }: { children: ReactNode }) {
   const { ready, authenticated, user, login, logout } = usePrivy();
+  const { createWallet } = useCreateWallet();
+
+  // createOnLogin only applies if the dashboard allows it, so make sure every signed-in
+  // user ends up with an embedded wallet regardless of that setting. Once per session.
+  const creating = useRef(false);
+  const needsWallet = ready && authenticated && !!user && !user.wallet;
+  useEffect(() => {
+    if (!needsWallet || creating.current) return;
+    creating.current = true;
+    createWallet().catch((err: unknown) => {
+      console.error("Couldn't create an embedded wallet", err);
+      creating.current = false;
+    });
+  }, [needsWallet, createWallet]);
 
   const value = useMemo<AuthContextValue>(
     () => ({

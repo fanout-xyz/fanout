@@ -15,8 +15,8 @@ import type { FanoutClient, FanoutClientContext } from "./client";
 import { NotFoundError, type PayoutStatus } from "./types";
 
 /**
- * viem implementation against the PLACEHOLDER ABIs in ./abis. Untested until
- * contracts are deployed. Enable with NEXT_PUBLIC_USE_MOCK=false.
+ * viem implementation against the deployed contracts (ABIs in ./abis).
+ * Enable with NEXT_PUBLIC_USE_MOCK=false.
  */
 
 const STATUS: readonly PayoutStatus[] = ["sent", "claimed", "refunded"];

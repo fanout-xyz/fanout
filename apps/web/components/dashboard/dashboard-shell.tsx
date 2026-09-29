@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
+import type { Address } from "viem";
 import { Logo } from "@/components/brand/logo";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
@@ -64,6 +65,7 @@ export function DashboardShell({ children }: { children: ReactNode }) {
               <p className="truncate text-sm font-semibold" title={user?.email}>
                 {user?.email ?? "Signed in"}
               </p>
+              {user?.address && <WalletAddress address={user.address} />}
               <Button variant="secondary" size="sm" onClick={() => void logout()} className="w-full">
                 Sign out
               </Button>
@@ -96,5 +98,32 @@ export function DashboardShell({ children }: { children: ReactNode }) {
         </main>
       </div>
     </div>
+  );
+}
+
+/** The platform's wallet: where to send MON for gas and AUSD to deposit. */
+function WalletAddress({ address }: { address: Address }) {
+  const [copied, setCopied] = useState(false);
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(address);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Clipboard blocked: the full address is in the title tooltip.
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => void copy()}
+      title={address}
+      aria-label={`Copy wallet address ${address}`}
+      className={cn("-mt-2 self-start rounded-sm font-mono text-xs text-muted hover:text-foreground", focusRing)}
+    >
+      {copied ? "Copied" : `${address.slice(0, 6)}…${address.slice(-4)}`}
+    </button>
   );
 }

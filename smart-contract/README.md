@@ -8,18 +8,18 @@ Three Solidity contracts on Monad testnet that move the money for Fanout: **Trea
 
 | Contract | Address | Deploy tx |
 | --- | --- | --- |
-| Treasury | [`0x74a8D547daD96f478135E475360d719df1cA2BFa`](https://testnet.monadexplorer.com/address/0x74a8D547daD96f478135E475360d719df1cA2BFa) | [`0x62f8…98dd`](https://testnet.monadexplorer.com/tx/0x62f857b967162d0d970fbc70324373f02128815ca8088a353d23c3366a4198dd) |
-| ClaimEscrow | [`0x7AB0E50E02e900dc423AAF5858c8E70289B44F11`](https://testnet.monadexplorer.com/address/0x7AB0E50E02e900dc423AAF5858c8E70289B44F11) | [`0x6e82…74ff`](https://testnet.monadexplorer.com/tx/0x6e82b4f06a83ffa835aedbb5925910f3c94eb3953ee118c177f24a4fdf1374ff) |
-| BatchPayout | [`0x408640A93b9e11C2e7799fd3eB1975b5B7FC10F4`](https://testnet.monadexplorer.com/address/0x408640A93b9e11C2e7799fd3eB1975b5B7FC10F4) | [`0xe362…c32c`](https://testnet.monadexplorer.com/tx/0xe36217f20d10d6cfb869d324d1030c67ed8870d243f90ef95503410d46ffc32c) |
+| Treasury | [`0x74a8D547daD96f478135E475360d719df1cA2BFa`](https://testnet.monadscan.com/address/0x74a8D547daD96f478135E475360d719df1cA2BFa) | [`0x62f8…98dd`](https://testnet.monadscan.com/tx/0x62f857b967162d0d970fbc70324373f02128815ca8088a353d23c3366a4198dd) |
+| ClaimEscrow | [`0x7AB0E50E02e900dc423AAF5858c8E70289B44F11`](https://testnet.monadscan.com/address/0x7AB0E50E02e900dc423AAF5858c8E70289B44F11) | [`0x6e82…74ff`](https://testnet.monadscan.com/tx/0x6e82b4f06a83ffa835aedbb5925910f3c94eb3953ee118c177f24a4fdf1374ff) |
+| BatchPayout | [`0x408640A93b9e11C2e7799fd3eB1975b5B7FC10F4`](https://testnet.monadscan.com/address/0x408640A93b9e11C2e7799fd3eB1975b5B7FC10F4) | [`0xe362…c32c`](https://testnet.monadscan.com/tx/0xe36217f20d10d6cfb869d324d1030c67ed8870d243f90ef95503410d46ffc32c) |
 
 | Setting | Value |
 | --- | --- |
 | Network | Monad testnet, chain id `10143`, RPC `https://testnet-rpc.monad.xyz` |
-| Payout token | Agora AUSD [`0xa9012a055bd4e0eDfF8Ce09f960291C09D5322dC`](https://testnet.monadexplorer.com/address/0xa9012a055bd4e0eDfF8Ce09f960291C09D5322dC), 6 decimals ($1 = `1_000_000`) |
+| Payout token | Agora AUSD [`0xa9012a055bd4e0eDfF8Ce09f960291C09D5322dC`](https://testnet.monadscan.com/address/0xa9012a055bd4e0eDfF8Ce09f960291C09D5322dC), 6 decimals ($1 = `1_000_000`) |
 | Deployer / owner | `0x978D459587b9807375E7A02ff403BED7E68d0b0e` (testnet-only wallet) |
 | Claim expiry (`claimTtl`) | 30 days (`2592000` seconds) |
 | Max rows per batch (`MAX_ROWS`) | 150 |
-| Wiring | `ClaimEscrow.wire` [`0xbff8…a1bf`](https://testnet.monadexplorer.com/tx/0xbff8e33f2dc7ecf9978b59558a56803d5a1e519799e36eb7eacfab781e19a1bf), `Treasury.wire` [`0xb8c3…ae37`](https://testnet.monadexplorer.com/tx/0xb8c33747b28a0a3794088502b647cb4d9f27f51d29dbc31ebfd5c7c4b23bae37) |
+| Wiring | `ClaimEscrow.wire` [`0xbff8…a1bf`](https://testnet.monadscan.com/tx/0xbff8e33f2dc7ecf9978b59558a56803d5a1e519799e36eb7eacfab781e19a1bf), `Treasury.wire` [`0xb8c3…ae37`](https://testnet.monadscan.com/tx/0xb8c33747b28a0a3794088502b647cb4d9f27f51d29dbc31ebfd5c7c4b23bae37) |
 | Blocks | 66494877 (Treasury) to 66494919 (last wire) |
 | Compiler | solc 0.8.30, EVM target `cancun`, optimizer on (200 runs) |
 
