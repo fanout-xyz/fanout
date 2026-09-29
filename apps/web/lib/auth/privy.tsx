@@ -2,7 +2,7 @@
 
 import { PrivyProvider, useCreateWallet, usePrivy } from "@privy-io/react-auth";
 import { WagmiProvider, createConfig } from "@privy-io/wagmi";
-import { useEffect, useMemo, useRef, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, type ComponentProps, type ReactNode } from "react";
 import { getAddress } from "viem";
 import { http } from "wagmi";
 import { activeChain } from "@/lib/chains";
@@ -14,6 +14,16 @@ const wagmiConfig = createConfig({
   transports: { [activeChain.id]: http() },
   ssr: true,
 });
+
+type SetActiveWalletForWagmi = NonNullable<ComponentProps<typeof WagmiProvider>["setActiveWalletForWagmi"]>;
+
+// Connect wagmi to the wallet the app shows (user.wallet) explicitly. Without this, @privy-io/wagmi
+// relies on a reconnect that can silently leave wagmi disconnected, and a user can hold more than one
+// embedded wallet ("privy" and "privy-v2"), so picking by type can sign from a different address.
+const pickEmbeddedWallet: SetActiveWalletForWagmi = ({ wallets, user }) => {
+  const primary = user?.wallet?.address.toLowerCase();
+  return wallets.find((w) => w.address.toLowerCase() === primary);
+};
 
 function PrivyBridge({ children }: { children: ReactNode }) {
   const { ready, authenticated, user, login, logout } = usePrivy();
@@ -69,7 +79,7 @@ export function PrivyAuthProvider({ appId, children }: { appId: string; children
         appearance: { walletChainType: "ethereum-only", landingHeader: "Sign in to Fanout" },
       }}
     >
-      <WagmiProvider config={wagmiConfig}>
+      <WagmiProvider config={wagmiConfig} setActiveWalletForWagmi={pickEmbeddedWallet}>
         <PrivyBridge>{children}</PrivyBridge>
       </WagmiProvider>
     </PrivyProvider>
