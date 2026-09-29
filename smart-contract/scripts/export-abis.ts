@@ -1,12 +1,13 @@
 // Copies the deployed ABIs and addresses (including the payout token) into the web app.
 // Usage: pnpm export-abis [deployment-id]
-//   monad-v2 (default):  tAUSD, with the claim verifier (email check)
+//   monad-ausd (default): real Agora AUSD, with the claim verifier (email check)
+//   monad-v2:            tAUSD, with the claim verifier
 //   monad-test-ausd:     tAUSD, before the verifier (claims need only the link)
 //   chain-10143:         real Agora AUSD, before the verifier (redeploy with the verifier for the demo)
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-const deploymentId = process.argv[2] ?? "monad-v2";
+const deploymentId = process.argv[2] ?? "monad-ausd";
 const root = join(import.meta.dirname, "..");
 const deployment = join(root, "ignition", "deployments", deploymentId);
 const out = join(root, "..", "apps", "web", "lib", "fanout", "abis", "contracts.generated.ts");
