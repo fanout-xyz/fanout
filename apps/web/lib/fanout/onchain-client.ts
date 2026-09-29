@@ -126,12 +126,14 @@ export function createOnchainClient(ctx: FanoutClientContext): FanoutClient {
 
     async claim(claimSigner, recipient, signature) {
       // The payee's new wallet holds no MON, so our relayer submits the claim and pays the gas
-      // (app/api/claim). The signature binds the recipient, so the relayer can't redirect it.
+      // (app/api/claim). It also checks the claimer's email via their session token before co-signing.
+      const accessToken = await ctx.getAccessToken?.();
+      if (!accessToken) throw new Error("Sign in to claim this payment.");
       let res: Response;
       try {
         res = await fetch("/api/claim", {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "application/json", authorization: `Bearer ${accessToken}` },
           body: JSON.stringify({ claimSigner, recipient, signature }),
         });
       } catch {

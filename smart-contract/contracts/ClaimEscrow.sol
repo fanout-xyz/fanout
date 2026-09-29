@@ -12,9 +12,12 @@ import {ITreasury} from "./interfaces/ITreasury.sol";
 
 /// Holds each payee's AUSD until they claim it or it expires and is refunded to the platform.
 ///
-/// A claim is unlocked by a one-time key that only lives in the payee's link. The key signs
-///   keccak256(abi.encode(recipient, address(this), block.chainid))
-/// as an EIP-191 personal message; see apps/web/lib/fanout/claim-keys.ts.
+/// A claim needs two EIP-191 personal-message signatures (see apps/web/lib/fanout/claim-keys.ts):
+///   1. The one-time key that only lives in the payee's link (proves they hold the link):
+///        keccak256(abi.encode(recipient, address(this), block.chainid))
+///   2. Fanout's verifier (proves the claimer signed in with the email the payout was sent to):
+///        keccak256(abi.encode(VERIFY_TAG, claimSigner, recipient, address(this), block.chainid))
+/// A leaked link alone is useless, and so is the verifier key alone.
 contract ClaimEscrow is IClaimEscrow, Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -33,9 +36,14 @@ contract ClaimEscrow is IClaimEscrow, Ownable, ReentrancyGuard {
         bytes32 emailHash;
     }
 
+    /// Domain tag for the verifier's signature, so it can never be mistaken for a link-key signature.
+    bytes32 public constant VERIFY_TAG = keccak256("fanout.claim.verify");
+
     IERC20 public immutable ausd;
     ITreasury public immutable treasury;
     address public batchPayout;
+    /// Signs off on each claim after checking the claimer's verified email. Owner can rotate it.
+    address public verifier;
 
     mapping(address claimSigner => Claim) public claims;
 
@@ -44,6 +52,7 @@ contract ClaimEscrow is IClaimEscrow, Ownable, ReentrancyGuard {
     );
     event Claimed(address indexed claimSigner, address indexed recipient, uint256 amount);
     event Refunded(address indexed claimSigner, address indexed platform, uint256 amount);
+    event VerifierChanged(address indexed verifier);
 
     error ZeroAddress();
     error ZeroAmount();
@@ -54,12 +63,22 @@ contract ClaimEscrow is IClaimEscrow, Ownable, ReentrancyGuard {
     error UnknownClaim();
     error NotClaimable(Status status);
     error BadSignature();
+    error BadVerification();
     error NotExpired(uint64 expiresAt);
 
-    constructor(IERC20 ausd_, ITreasury treasury_) Ownable(msg.sender) {
-        if (address(ausd_) == address(0) || address(treasury_) == address(0)) revert ZeroAddress();
+    constructor(IERC20 ausd_, ITreasury treasury_, address verifier_) Ownable(msg.sender) {
+        if (address(ausd_) == address(0) || address(treasury_) == address(0) || verifier_ == address(0)) revert ZeroAddress();
         ausd = ausd_;
         treasury = treasury_;
+        verifier = verifier_;
+        emit VerifierChanged(verifier_);
+    }
+
+    /// Rotate the verifier key, e.g. if it leaks. Takes effect for every unclaimed payment.
+    function setVerifier(address verifier_) external onlyOwner {
+        if (verifier_ == address(0)) revert ZeroAddress();
+        verifier = verifier_;
+        emit VerifierChanged(verifier_);
     }
 
     /// One-time setup after deploy. The address can never change afterwards.
@@ -104,16 +123,19 @@ contract ClaimEscrow is IClaimEscrow, Ownable, ReentrancyGuard {
         return (c.amount, c.platform, uint8(c.status), c.emailHash);
     }
 
-    /// Anyone can submit this (e.g. a relayer paying gas): the signature binds the recipient.
+    /// Anyone can submit this (e.g. a relayer paying gas): both signatures bind the recipient.
     /// Claims stay valid past expiry until someone calls refund.
-    function claim(address claimSigner, address recipient, bytes calldata signature) external nonReentrant {
+    function claim(address claimSigner, address recipient, bytes calldata signature, bytes calldata verification)
+        external
+        nonReentrant
+    {
         if (recipient == address(0)) revert ZeroAddress();
         Claim storage c = _sentClaim(claimSigner);
 
         bytes32 digest = keccak256(abi.encode(recipient, address(this), block.chainid));
-        (address signer, ECDSA.RecoverError err,) =
-            ECDSA.tryRecover(MessageHashUtils.toEthSignedMessageHash(digest), signature);
-        if (err != ECDSA.RecoverError.NoError || signer != claimSigner) revert BadSignature();
+        if (_recover(digest, signature) != claimSigner) revert BadSignature();
+        bytes32 verifyDigest = keccak256(abi.encode(VERIFY_TAG, claimSigner, recipient, address(this), block.chainid));
+        if (_recover(verifyDigest, verification) != verifier) revert BadVerification();
 
         c.status = Status.Claimed;
         uint256 amount = c.amount;
@@ -132,6 +154,11 @@ contract ClaimEscrow is IClaimEscrow, Ownable, ReentrancyGuard {
         ausd.safeTransfer(address(treasury), amount);
         treasury.credit(platform, amount);
         emit Refunded(claimSigner, platform, amount);
+    }
+
+    /// Returns address(0) for a malformed signature, which never matches a real signer.
+    function _recover(bytes32 digest, bytes calldata signature) private pure returns (address signer) {
+        (signer,,) = ECDSA.tryRecover(MessageHashUtils.toEthSignedMessageHash(digest), signature);
     }
 
     function _sentClaim(address claimSigner) private view returns (Claim storage c) {

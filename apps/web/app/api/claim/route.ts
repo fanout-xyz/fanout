@@ -2,7 +2,10 @@ import { NextResponse } from "next/server";
 import { config } from "@/lib/config";
 import { relayClaim, RelayError } from "@/lib/fanout/relayer";
 
-/** Gasless claims: { claimSigner, recipient, signature } -> { txHash }. See lib/fanout/relayer.ts. */
+/**
+ * Gasless, email-checked claims: { claimSigner, recipient, signature } + `Authorization: Bearer <Privy access token>`
+ * -> { txHash }. See lib/fanout/relayer.ts.
+ */
 export async function POST(request: Request) {
   if (config.useMock) return new NextResponse(null, { status: 404 });
 
@@ -14,7 +17,8 @@ export async function POST(request: Request) {
   }
 
   try {
-    const txHash = await relayClaim({ claimSigner: body.claimSigner, recipient: body.recipient, signature: body.signature });
+    const accessToken = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") || null;
+    const txHash = await relayClaim({ claimSigner: body.claimSigner, recipient: body.recipient, signature: body.signature, accessToken });
     return NextResponse.json({ txHash });
   } catch (err) {
     if (err instanceof RelayError) return NextResponse.json({ error: err.message }, { status: err.status });

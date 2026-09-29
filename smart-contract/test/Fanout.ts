@@ -5,7 +5,8 @@ import { network } from "hardhat";
 import { getAddress, keccak256, toHex, zeroAddress, zeroHash, type Address } from "viem";
 
 // Same signing code the claim page uses, so the contract is tested against the real client.
-import { generateClaimKey, signClaim, type ClaimKey } from "../../apps/web/lib/fanout/claim-keys.ts";
+import { generateClaimKey, signClaim, signVerification, type ClaimKey } from "../../apps/web/lib/fanout/claim-keys.ts";
+import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 
 const { viem, networkHelpers } = await network.create();
 const publicClient = await viem.getPublicClient();
@@ -22,7 +23,8 @@ async function deploy() {
 
   const ausd = await viem.deployContract("MockAUSD");
   const treasury = await viem.deployContract("Treasury", [ausd.address]);
-  const escrow = await viem.deployContract("ClaimEscrow", [ausd.address, treasury.address]);
+  const verifierKey = generatePrivateKey();
+  const escrow = await viem.deployContract("ClaimEscrow", [ausd.address, treasury.address, privateKeyToAccount(verifierKey).address]);
   const batchPayout = await viem.deployContract("BatchPayout", [treasury.address, escrow.address, TTL]);
   await treasury.write.wire([batchPayout.address, escrow.address]);
   await escrow.write.wire([batchPayout.address]);
@@ -40,7 +42,7 @@ async function deploy() {
   await asPlatform.ausd.write.approve([treasury.address, usd(10_000)]);
   await asPlatform.treasury.write.deposit([usd(1_000)]);
 
-  return { deployer, platform, payee, relayer, stranger, chainId, ausd, treasury, escrow, batchPayout, asPlatform, asRelayer };
+  return { deployer, platform, payee, relayer, stranger, chainId, verifierKey, ausd, treasury, escrow, batchPayout, asPlatform, asRelayer };
 }
 
 type Fixture = Awaited<ReturnType<typeof deploy>>;
@@ -66,6 +68,11 @@ function sign(f: Fixture, key: ClaimKey, recipient: Address, overrides: { claimC
     claimContract: overrides.claimContract ?? f.escrow.address,
     chainId: overrides.chainId ?? f.chainId,
   });
+}
+
+/** The verifier's co-signature, as the server issues it after checking the claimer's email. */
+function verify(f: Fixture, claimSigner: Address, recipient: Address, overrides: { verifierKey?: `0x${string}` } = {}) {
+  return signVerification(overrides.verifierKey ?? f.verifierKey, { claimSigner, recipient, claimContract: f.escrow.address, chainId: f.chainId });
 }
 
 describe("Treasury", () => {
@@ -235,7 +242,7 @@ describe("ClaimEscrow", () => {
     const recipient = f.payee.account.address;
     const signature = await sign(f, key, recipient);
 
-    await viem.assertions.balancesHaveChanged(f.asRelayer.escrow.write.claim([key.claimSigner, recipient, signature]), [
+    await viem.assertions.balancesHaveChanged(f.asRelayer.escrow.write.claim([key.claimSigner, recipient, signature, await verify(f, key.claimSigner, recipient)]), [
       { address: recipient, amount: 0n },
     ]); // native MON: the payee spends no gas
     assert.equal(await f.ausd.read.balanceOf([recipient]), usd(100));
@@ -249,7 +256,7 @@ describe("ClaimEscrow", () => {
     const key = f.batch.keys[1];
     const recipient = f.payee.account.address;
     await viem.assertions.emitWithArgs(
-      f.asRelayer.escrow.write.claim([key.claimSigner, recipient, await sign(f, key, recipient)]),
+      f.asRelayer.escrow.write.claim([key.claimSigner, recipient, await sign(f, key, recipient), await verify(f, key.claimSigner, recipient)]),
       f.escrow,
       "Claimed",
       [getAddress(key.claimSigner), getAddress(recipient), usd(50)],
@@ -264,15 +271,15 @@ describe("ClaimEscrow", () => {
     const claim = f.asRelayer.escrow.write.claim;
 
     // Signed by another row's key.
-    await viem.assertions.revertWithCustomError(claim([key.claimSigner, recipient, await sign(f, otherKey, recipient)]), f.escrow, "BadSignature");
+    await viem.assertions.revertWithCustomError(claim([key.claimSigner, recipient, await sign(f, otherKey, recipient), await verify(f, key.claimSigner, recipient)]), f.escrow, "BadSignature");
     // Valid signature for the payee, but a front-runner swaps in their own address.
     const signature = await sign(f, key, recipient);
-    await viem.assertions.revertWithCustomError(claim([key.claimSigner, attacker, signature]), f.escrow, "BadSignature");
+    await viem.assertions.revertWithCustomError(claim([key.claimSigner, attacker, signature, await verify(f, key.claimSigner, attacker)]), f.escrow, "BadSignature");
     // Garbage signature bytes.
-    await viem.assertions.revertWithCustomError(claim([key.claimSigner, recipient, "0x1234"]), f.escrow, "BadSignature");
+    await viem.assertions.revertWithCustomError(claim([key.claimSigner, recipient, "0x1234", await verify(f, key.claimSigner, recipient)]), f.escrow, "BadSignature");
 
-    await claim([key.claimSigner, recipient, signature]);
-    await viem.assertions.revertWithCustomErrorWithArgs(claim([key.claimSigner, recipient, signature]), f.escrow, "NotClaimable", [CLAIMED]);
+    await claim([key.claimSigner, recipient, signature, await verify(f, key.claimSigner, recipient)]);
+    await viem.assertions.revertWithCustomErrorWithArgs(claim([key.claimSigner, recipient, signature, await verify(f, key.claimSigner, recipient)]), f.escrow, "NotClaimable", [CLAIMED]);
   });
 
   it("rejects a signature made for another contract or chain", async () => {
@@ -282,10 +289,10 @@ describe("ClaimEscrow", () => {
     const claim = f.asRelayer.escrow.write.claim;
 
     const otherContract = await sign(f, key, recipient, { claimContract: f.treasury.address });
-    await viem.assertions.revertWithCustomError(claim([key.claimSigner, recipient, otherContract]), f.escrow, "BadSignature");
+    await viem.assertions.revertWithCustomError(claim([key.claimSigner, recipient, otherContract, await verify(f, key.claimSigner, recipient)]), f.escrow, "BadSignature");
 
     const otherChain = await sign(f, key, recipient, { chainId: f.chainId === 1 ? 10143 : 1 });
-    await viem.assertions.revertWithCustomError(claim([key.claimSigner, recipient, otherChain]), f.escrow, "BadSignature");
+    await viem.assertions.revertWithCustomError(claim([key.claimSigner, recipient, otherChain, await verify(f, key.claimSigner, recipient)]), f.escrow, "BadSignature");
   });
 
   it("rejects unknown claims and a zero recipient", async () => {
@@ -293,16 +300,58 @@ describe("ClaimEscrow", () => {
     const unknown = generateClaimKey();
     const recipient = f.payee.account.address;
     await viem.assertions.revertWithCustomError(
-      f.asRelayer.escrow.write.claim([unknown.claimSigner, recipient, await sign(f, unknown, recipient)]),
+      f.asRelayer.escrow.write.claim([unknown.claimSigner, recipient, await sign(f, unknown, recipient), await verify(f, unknown.claimSigner, recipient)]),
       f.escrow,
       "UnknownClaim",
     );
     const key = f.batch.keys[0];
     await viem.assertions.revertWithCustomError(
-      f.asRelayer.escrow.write.claim([key.claimSigner, zeroAddress, await sign(f, key, zeroAddress)]),
+      f.asRelayer.escrow.write.claim([key.claimSigner, zeroAddress, await sign(f, key, zeroAddress), await verify(f, key.claimSigner, zeroAddress)]),
       f.escrow,
       "ZeroAddress",
     );
+  });
+
+  it("rejects a claim without a valid verifier co-signature", async () => {
+    const f = await networkHelpers.loadFixture(deployWithBatch);
+    const [key, otherKey] = f.batch.keys;
+    const recipient = f.payee.account.address;
+    const signature = await sign(f, key, recipient);
+    const claim = f.asRelayer.escrow.write.claim;
+    const bad = (verification: `0x${string}`) =>
+      viem.assertions.revertWithCustomError(claim([key.claimSigner, recipient, signature, verification]), f.escrow, "BadVerification");
+
+    // A leaked link alone: no co-signature, a garbage one, or one from a key that isn't the verifier.
+    await bad("0x");
+    await bad("0x1234");
+    await bad(await verify(f, key.claimSigner, recipient, { verifierKey: generatePrivateKey() }));
+    // The verifier approved someone else's claim, or this claim for a different recipient.
+    await bad(await verify(f, otherKey.claimSigner, recipient));
+    await bad(await verify(f, key.claimSigner, f.stranger.account.address));
+    // A link-key signature can't stand in for the verifier's.
+    await bad(signature);
+
+    const [, , status] = await f.escrow.read.getClaim([key.claimSigner]);
+    assert.equal(status, SENT);
+  });
+
+  it("the owner can rotate the verifier; old co-signatures stop working", async () => {
+    const f = await networkHelpers.loadFixture(deployWithBatch);
+    const key = f.batch.keys[0];
+    const recipient = f.payee.account.address;
+    const signature = await sign(f, key, recipient);
+    const oldVerification = await verify(f, key.claimSigner, recipient);
+
+    const newKey = generatePrivateKey();
+    const newVerifier = privateKeyToAccount(newKey).address;
+    await viem.assertions.revertWithCustomError(f.asRelayer.escrow.write.setVerifier([newVerifier]), f.escrow, "OwnableUnauthorizedAccount");
+    await viem.assertions.revertWithCustomError(f.escrow.write.setVerifier([zeroAddress]), f.escrow, "ZeroAddress");
+    await viem.assertions.emitWithArgs(f.escrow.write.setVerifier([newVerifier]), f.escrow, "VerifierChanged", [newVerifier]);
+
+    const claim = f.asRelayer.escrow.write.claim;
+    await viem.assertions.revertWithCustomError(claim([key.claimSigner, recipient, signature, oldVerification]), f.escrow, "BadVerification");
+    await claim([key.claimSigner, recipient, signature, await verify(f, key.claimSigner, recipient, { verifierKey: newKey })]);
+    assert.equal(await f.ausd.read.balanceOf([recipient]), usd(100));
   });
 
   it("refund fails before expiry, works after, and credits the platform", async () => {
@@ -329,7 +378,7 @@ describe("ClaimEscrow", () => {
     await f.asPlatform.treasury.write.withdraw([balanceBefore + usd(100)]);
     const recipient = f.payee.account.address;
     await viem.assertions.revertWithCustomErrorWithArgs(
-      f.asRelayer.escrow.write.claim([key.claimSigner, recipient, await sign(f, key, recipient)]),
+      f.asRelayer.escrow.write.claim([key.claimSigner, recipient, await sign(f, key, recipient), await verify(f, key.claimSigner, recipient)]),
       f.escrow,
       "NotClaimable",
       [REFUNDED],
@@ -342,7 +391,7 @@ describe("ClaimEscrow", () => {
     const key = f.batch.keys[2];
     const recipient = f.payee.account.address;
     await networkHelpers.time.increase(TTL * 2n);
-    await f.asRelayer.escrow.write.claim([key.claimSigner, recipient, await sign(f, key, recipient)]);
+    await f.asRelayer.escrow.write.claim([key.claimSigner, recipient, await sign(f, key, recipient), await verify(f, key.claimSigner, recipient)]);
     assert.equal(await f.ausd.read.balanceOf([recipient]), usd(25));
     await viem.assertions.revertWithCustomErrorWithArgs(f.asRelayer.escrow.write.refund([key.claimSigner]), f.escrow, "NotClaimable", [CLAIMED]);
   });

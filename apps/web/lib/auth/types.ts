@@ -19,4 +19,6 @@ export type AuthContextValue = {
   /** Opens the sign-in flow. */
   login: () => void;
   logout: () => Promise<void>;
+  /** Short-lived session token the server checks (Privy only), e.g. to verify a claimer's email. */
+  getAccessToken?: () => Promise<string | null>;
 };

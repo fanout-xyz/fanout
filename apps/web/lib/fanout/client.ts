@@ -43,6 +43,8 @@ export type FanoutClientContext = {
   account?: Address;
   /** Required by the onchain client for writes. The mock ignores it. */
   walletClient?: WalletClient;
+  /** Proves who is claiming, so the server can check their email. Onchain client only. */
+  getAccessToken?: () => Promise<string | null>;
 };
 
 export function createFanoutClient(ctx: FanoutClientContext): FanoutClient {

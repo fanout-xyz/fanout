@@ -6,14 +6,26 @@ Three Solidity contracts on Monad testnet that move the money for Fanout: **Trea
 
 ## Deployed addresses (Monad testnet)
 
-There are two deployments of the same contracts. They differ only in the payout token.
-
-| Deployment | Payout token | Used by the web app | Why |
+| Deployment | Payout token | Claim verifier (email check) | Used by the web app |
 | --- | --- | --- | --- |
-| **`monad-test-ausd`** | Our **tAUSD** (anyone can mint) | ✅ **Yes, now** | Agora's AUSD faucet on Monad testnet is empty (`requestFunds` reverts `InsufficientFunds()`), so there's no real AUSD to test with |
-| `chain-10143` | Real Agora **AUSD** | Not yet | Needed for the Agora "Best Cross-Border Payments" bounty. Switch to it before the demo; see [Switching to real AUSD](#switching-to-real-ausd) |
+| **`monad-v2`** | Our **tAUSD** (anyone can mint) | ✅ Yes | ✅ **Yes, now** |
+| `monad-test-ausd` | tAUSD | No: the link alone can claim | No, superseded by `monad-v2` |
+| `chain-10143` | Real Agora **AUSD** | No | Not yet. Needed for the Agora "Best Cross-Border Payments" bounty; redeploy it with the verifier before the demo, see [Switching to real AUSD](#switching-to-real-ausd) |
 
-### Active: `monad-test-ausd` (tAUSD), deployed 2026-09-29
+tAUSD exists because Agora's AUSD faucet on Monad testnet is empty (`requestFunds` reverts `InsufficientFunds()`). `monad-v2` reuses the same tAUSD token as `monad-test-ausd`, so wallet balances carry over, but Treasury balances and payouts on the old contracts stay there.
+
+### Active: `monad-v2` (tAUSD + claim verifier), deployed 2026-09-30
+
+| Contract | Address |
+| --- | --- |
+| tAUSD token (`MockAUSD`) | [`0x34C2CFdE74D0edbABF2F4382CEbD9F600048d17E`](https://testnet.monadscan.com/address/0x34C2CFdE74D0edbABF2F4382CEbD9F600048d17E) (same token as below) |
+| Treasury | [`0xF6117E2bbf56bb942DB279B6bec461761ee0De73`](https://testnet.monadscan.com/address/0xF6117E2bbf56bb942DB279B6bec461761ee0De73) |
+| ClaimEscrow | [`0xbD1519D8f5602cE5CFed89E505AD81717567fd78`](https://testnet.monadscan.com/address/0xbD1519D8f5602cE5CFed89E505AD81717567fd78) |
+| BatchPayout | [`0xd75aCB8BffEc8F8BF38D067e0F26E263954EA783`](https://testnet.monadscan.com/address/0xd75aCB8BffEc8F8BF38D067e0F26E263954EA783) |
+
+Claim verifier: `0x5A115F0E14232D658763b8683B6c0da9fBBe5549` (key: `VERIFIER_PRIVATE_KEY` in `apps/web/.env.local`). Relayer that pays claim gas: `0x3400FC4Bad547bFf9258EC1739f8696634057227` (`RELAYER_PRIVATE_KEY`). Deploy parameters: `ignition/parameters/monad-v2.json`. Deploy tx hashes are in `ignition/deployments/monad-v2/journal.jsonl`.
+
+### Previous: `monad-test-ausd` (tAUSD, no verifier), deployed 2026-09-29
 
 | Contract | Address | Deploy tx |
 | --- | --- | --- |
@@ -204,6 +216,7 @@ Money only ever sits in two places: the Treasury (deposited but not yet paid out
 | `ausd` | `IERC20 immutable` | The payout token |
 | `treasury` | `ITreasury immutable` | Where refunds go |
 | `batchPayout` | `address` | The only address allowed to call `open`. Set once by `wire` |
+| `verifier` | `address` | Must co-sign every claim (see [Claim links and signatures](#claim-links-and-signatures)). The owner can rotate it with `setVerifier` |
 | `claims` | `mapping(address claimSigner => Claim)` | `Claim { uint256 amount; address platform; Status status; uint64 expiresAt; bytes32 emailHash; }` |
 
 `Status` is `Sent = 0`, `Claimed = 1`, `Refunded = 2`, which matches the web app's `["sent", "claimed", "refunded"]`. A claim record is never deleted. Its non-zero `amount` is how the contract knows a `claimSigner` has already been used.
@@ -212,19 +225,20 @@ Money only ever sits in two places: the Treasury (deposited but not yet paid out
 
 | Function | Who can call | What it does |
 | --- | --- | --- |
-| `constructor(IERC20 ausd, ITreasury treasury)` | Deployer | Sets the token and Treasury; the deployer becomes owner |
+| `constructor(IERC20 ausd, ITreasury treasury, address verifier)` | Deployer | Sets the token, Treasury and claim verifier; the deployer becomes owner |
 | `wire(address batchPayout)` | Owner, once | Sets the one contract allowed to open claims |
+| `setVerifier(address verifier)` | Owner | Rotates the claim verifier, e.g. if its key leaks. Old co-signatures stop working |
 | `open(batchId, platform, claimSigners[], amounts[], emailHashes[], expiresAt)` | BatchPayout only | Records one `Sent` claim per row. Rejects a zero signer, a zero amount, and a signer that has already been used, including a duplicate within the same batch |
 | `getClaim(address claimSigner) view → (amount, platform, status, emailHash)` | Anyone | Returns `amount = 0` for an unknown claim; the web app treats that as "link not valid" |
 | `claims(address claimSigner) view` | Anyone | The full record, including `expiresAt` |
-| `claim(address claimSigner, address recipient, bytes signature)` | Anyone (a relayer can pay gas) | Checks the signature (see below), marks the claim `Claimed` and sends the AUSD to `recipient` |
+| `claim(address claimSigner, address recipient, bytes signature, bytes verification)` | Anyone (our relayer pays gas) | Checks the link signature and the verifier's co-signature (see below), marks the claim `Claimed` and sends the AUSD to `recipient` |
 | `refund(address claimSigner)` | Anyone, once `block.timestamp >= expiresAt` | Marks the claim `Refunded`, sends the AUSD to the Treasury and calls `Treasury.credit` |
 
 A claim that has expired but hasn't been refunded can still be claimed. Expiry only makes a refund possible; it doesn't cut the payee off. Whichever call lands first wins.
 
-**Events:** `ClaimOpened(claimSigner indexed, platform indexed, batchId indexed, amount, expiresAt)`, `Claimed(claimSigner indexed, recipient indexed, amount)`, `Refunded(claimSigner indexed, platform indexed, amount)`.
+**Events:** `ClaimOpened(claimSigner indexed, platform indexed, batchId indexed, amount, expiresAt)`, `Claimed(claimSigner indexed, recipient indexed, amount)`, `Refunded(claimSigner indexed, platform indexed, amount)`, `VerifierChanged(verifier indexed)`.
 
-**Errors:** `ZeroAddress`, `ZeroAmount`, `AlreadyWired`, `Unauthorized`, `LengthMismatch`, `ClaimSignerUsed(claimSigner)`, `UnknownClaim`, `NotClaimable(status)`, `BadSignature`, `NotExpired(expiresAt)`.
+**Errors:** `ZeroAddress`, `ZeroAmount`, `AlreadyWired`, `Unauthorized`, `LengthMismatch`, `ClaimSignerUsed(claimSigner)`, `UnknownClaim`, `NotClaimable(status)`, `BadSignature`, `BadVerification`, `NotExpired(expiresAt)`.
 
 ## Claim links and signatures
 
@@ -234,6 +248,9 @@ A claim is unlocked by a one-time key that lives only in the payee's link. The w
 2. The private key goes only into the link, `/claim#k=<key>`. Browsers never send the part after `#` to a server.
 3. On the claim page, the key signs the recipient address, the ClaimEscrow address and the chain id, as an EIP-191 personal message.
 4. `claim(...)` recovers the signer and checks that it equals `claimSigner`.
+5. **The verifier co-signs.** The claim page sends the claim to the web app's relayer (`apps/web/app/api/claim`, `lib/fanout/relayer.ts`) with the payee's Privy session token. The server looks up the payee's **verified** emails in Privy, and only if one of them hashes to the claim's onchain `emailHash` does it sign `keccak256(abi.encode(VERIFY_TAG, claimSigner, recipient, address(this), block.chainid))` with the verifier key. The contract rejects any claim without that co-signature (`BadVerification`).
+
+So a leaked or forwarded link is useless without access to the payee's inbox, and the verifier key alone is useless without the link. Calling the contract directly doesn't skip the check.
 
 ```solidity
 bytes32 digest = keccak256(abi.encode(recipient, address(this), block.chainid));
@@ -257,7 +274,9 @@ ausd.safeTransfer(recipient, amount); // then the transfer
 | Anyone creating claims against escrowed money | `ClaimEscrow.open` only accepts calls from BatchPayout |
 | Fake refunds | `Treasury.credit` only accepts calls from ClaimEscrow, which only credits after sending the AUSD back |
 | The owner swapping in a malicious contract later | `wire` works once and the addresses can never change. After wiring, the owner has no remaining powers |
-| Front-running a claim | The signature binds the recipient |
+| Front-running a claim | Both signatures bind the recipient |
+| A leaked or forwarded claim link | Useless alone: every claim also needs the verifier's co-signature, which the server only gives after checking the claimer signed in with the email the payment was sent to |
+| The verifier key leaking | Useless without the link too. The owner rotates it with `setVerifier`; keep it only on the server |
 | Replaying a signature | The signature binds the contract and chain, and a claim can only move out of `Sent` once |
 | Re-entrancy through token transfers | State changes before every transfer, and `nonReentrant` on `deposit`, `withdraw`, `claim` and `refund` |
 | Bad CSV rows locking or losing money | All three arrays must be the same length; no zero amount; no zero, reused or duplicate `claimSigner`; at most 150 rows |
@@ -320,7 +339,7 @@ The web app (`apps/web`) uses the live contracts when `NEXT_PUBLIC_USE_MOCK=fals
 
 When real testnet AUSD is available (the Agora faucet is refilled, or Agora sends some):
 
-1. `pnpm export-abis chain-10143`
+1. Redeploy the contracts for real AUSD **with the verifier** (the `chain-10143` deployment predates it): `hardhat ignition deploy ignition/modules/Fanout.ts --network monadTestnet --parameters <file with "verifier"> --deployment-id <new-id>`, then `pnpm export-abis <new-id>`.
 2. Restart `pnpm dev`, then get AUSD into the platform wallet (for example, `requestFunds(<wallet>)` on the faucet).
 3. Run deposit → batch → claim once, then update the table at the top of this README.
 
@@ -328,7 +347,8 @@ The web app still labels the token "AUSD" either way (`config.stablecoin.symbol`
 
 ### Still to do on the web app side
 
-- **Gas for payees.** `claim` and `send` currently expect the payee's wallet to pay gas, and a new wallet has no MON. The contract already supports a relayer or gas sponsorship, because the signature binds the recipient.
+- **Gas for payees.** Claims go through our relayer, which pays the gas. `send` (payee to anyone) still expects the payee's wallet to pay gas.
+- **Rate limiting** on `/api/claim` before a public launch.
 - **History.** Batch lists and payee history need the Envio indexer. It should read the `BatchCreated`, `ClaimOpened`, `Claimed`, `Refunded`, `Deposited` and `Withdrawn` events.
 
 ## Open questions

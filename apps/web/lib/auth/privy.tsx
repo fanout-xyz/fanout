@@ -26,7 +26,7 @@ const pickEmbeddedWallet: SetActiveWalletForWagmi = ({ wallets, user }) => {
 };
 
 function PrivyBridge({ children }: { children: ReactNode }) {
-  const { ready, authenticated, user, login, logout } = usePrivy();
+  const { ready, authenticated, user, login, logout, getAccessToken } = usePrivy();
   const { createWallet } = useCreateWallet();
 
   // createOnLogin only applies if the dashboard allows it, so make sure every signed-in
@@ -55,8 +55,9 @@ function PrivyBridge({ children }: { children: ReactNode }) {
         : null,
       login: () => login(),
       logout,
+      getAccessToken,
     }),
-    [ready, authenticated, user, login, logout],
+    [ready, authenticated, user, login, logout, getAccessToken],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

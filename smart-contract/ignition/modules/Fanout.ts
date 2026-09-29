@@ -5,12 +5,17 @@ import type { ArgumentType, IgnitionModuleBuilder } from "@nomicfoundation/ignit
 const MONAD_TESTNET_AUSD = "0xa9012a055bd4e0eDfF8Ce09f960291C09D5322dC";
 export const THIRTY_DAYS = 30n * 24n * 60n * 60n;
 
-/** Deploys Treasury, ClaimEscrow and BatchPayout for `ausd` and wires them together. */
+/**
+ * Deploys Treasury, ClaimEscrow and BatchPayout for `ausd` and wires them together.
+ * `verifier` (required parameter) is the address of the web app's VERIFIER_PRIVATE_KEY, which
+ * co-signs each claim after checking the claimer's email.
+ */
 export function deployFanout(m: IgnitionModuleBuilder, ausd: ArgumentType) {
   const claimTtl = m.getParameter("claimTtl", THIRTY_DAYS);
+  const verifier = m.getParameter<string>("verifier");
 
   const treasury = m.contract("Treasury", [ausd]);
-  const claimEscrow = m.contract("ClaimEscrow", [ausd, treasury]);
+  const claimEscrow = m.contract("ClaimEscrow", [ausd, treasury, verifier]);
   const batchPayout = m.contract("BatchPayout", [treasury, claimEscrow, claimTtl]);
 
   m.call(treasury, "wire", [batchPayout, claimEscrow]);
