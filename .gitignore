@@ -1,3 +1,6 @@
 node_modules
 .DS_Store
 .env*.local
+
+# Production env with real secrets (import into Vercel; never commit)
+.env.prod

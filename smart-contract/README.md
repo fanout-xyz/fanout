@@ -8,13 +8,25 @@ Three Solidity contracts on Monad testnet that move the money for Fanout: **Trea
 
 | Deployment | Payout token | Claim verifier (email check) | Used by the web app |
 | --- | --- | --- | --- |
-| **`monad-v2`** | Our **tAUSD** (anyone can mint) | ✅ Yes | ✅ **Yes, now** |
-| `monad-test-ausd` | tAUSD | No: the link alone can claim | No, superseded by `monad-v2` |
-| `chain-10143` | Real Agora **AUSD** | No | Not yet. Needed for the Agora "Best Cross-Border Payments" bounty; redeploy it with the verifier before the demo, see [Switching to real AUSD](#switching-to-real-ausd) |
+| **`monad-ausd`** | Real Agora **AUSD** | ✅ Yes | ✅ **Yes, now** |
+| `monad-v2` | Our **tAUSD** (anyone can mint) | ✅ Yes | No, superseded by `monad-ausd` |
+| `monad-test-ausd` | tAUSD | No: the link alone can claim | No |
+| `chain-10143` | Real AUSD | No | No |
 
-tAUSD exists because Agora's AUSD faucet on Monad testnet is empty (`requestFunds` reverts `InsufficientFunds()`). `monad-v2` reuses the same tAUSD token as `monad-test-ausd`, so wallet balances carry over, but Treasury balances and payouts on the old contracts stay there.
+**Getting test AUSD.** Agora's faucet on Monad testnet was refilled after 2026-09-30 (it held 1 billion AUSD on 2026-10-01). Call `requestFunds(<recipient>)` on [`0xd236c18D274E54FAccC3dd9DDA4b27965a73ee6C`](https://testnet.monadscan.com/address/0xd236c18D274E54FAccC3dd9DDA4b27965a73ee6C): 10,000 AUSD per call, once a minute per caller (`MaxFrequencyExceeded` otherwise), up to 100,000 per wallet. The argument is the recipient; anyone can pay the gas.
 
-### Active: `monad-v2` (tAUSD + claim verifier), deployed 2026-09-30
+### Active: `monad-ausd` (real AUSD + claim verifier), deployed 2026-10-01
+
+| Contract | Address |
+| --- | --- |
+| AUSD (Agora) | [`0xa9012a055bd4e0eDfF8Ce09f960291C09D5322dC`](https://testnet.monadscan.com/address/0xa9012a055bd4e0eDfF8Ce09f960291C09D5322dC) |
+| Treasury | [`0x245C9b855fd63395BccEC46f7Bac2671e18e79fE`](https://testnet.monadscan.com/address/0x245C9b855fd63395BccEC46f7Bac2671e18e79fE) |
+| ClaimEscrow | [`0xf1de07BFfAF3D3D4279399D63049F0C01b8aFD11`](https://testnet.monadscan.com/address/0xf1de07BFfAF3D3D4279399D63049F0C01b8aFD11) |
+| BatchPayout | [`0xfc15b4f0811C6F88e8D572cFB01fCE5b166FE3dF`](https://testnet.monadscan.com/address/0xfc15b4f0811C6F88e8D572cFB01fCE5b166FE3dF) |
+
+Same claim verifier (`0x5A115F0E14232D658763b8683B6c0da9fBBe5549`) and relayer as `monad-v2`. Deploy parameters: `ignition/parameters/monad-ausd.json`; tx hashes in `ignition/deployments/monad-ausd/journal.jsonl`. Checked on chain after deploy: wiring, verifier and 30-day TTL correct; a real-AUSD deposit, batch and verified claim went through, and a claim with only the link signature was refused.
+
+### Previous: `monad-v2` (tAUSD + claim verifier), deployed 2026-09-30
 
 | Contract | Address |
 | --- | --- |
@@ -335,11 +347,11 @@ The web app (`apps/web`) uses the live contracts when `NEXT_PUBLIC_USE_MOCK=fals
 - Every function name, argument order and return shape the web app uses matches the contracts, so `onchain-client.ts` needed no changes.
 - Privy sign-in creates the embedded wallet itself if the user has none (`apps/web/lib/auth/privy.tsx`), and the dashboard sidebar shows the wallet address.
 
-### Switching to real AUSD
+### Switching deployments
 
-When real testnet AUSD is available (the Agora faucet is refilled, or Agora sends some):
+The web app uses real AUSD (`monad-ausd`) by default. To point it at another deployment:
 
-1. Redeploy the contracts for real AUSD **with the verifier** (the `chain-10143` deployment predates it): `hardhat ignition deploy ignition/modules/Fanout.ts --network monadTestnet --parameters <file with "verifier"> --deployment-id <new-id>`, then `pnpm export-abis <new-id>`.
+1. `pnpm export-abis <deployment-id>` (for example `monad-v2` for tAUSD).
 2. Restart `pnpm dev`, then get AUSD into the platform wallet (for example, `requestFunds(<wallet>)` on the faucet).
 3. Run deposit → batch → claim once, then update the table at the top of this README.
 
