@@ -1,4 +1,5 @@
 import { getAddress, isAddress, zeroAddress, type Address } from "viem";
+import { deployedAddresses } from "./fanout/abis/contracts.generated";
 
 // NEXT_PUBLIC_* values are inlined at build time only when read as literal
 // `process.env.NEXT_PUBLIC_X` expressions, so each one is spelled out here.
@@ -15,17 +16,17 @@ export const config = {
 
   stablecoin: {
     symbol: "AUSD",
-    // Agora AUSD on Monad testnet: 0xa9012a055bd4e0eDfF8Ce09f960291C09D5322dC
-    // (docs.agora.finance/developer/contract-deployments; decimals()=6 confirmed onchain).
-    address: optionalAddress(process.env.NEXT_PUBLIC_AUSD_ADDRESS),
+    // Defaults to the token the deployed contracts were built for (see contracts.generated.ts):
+    // our tAUSD for now, Agora AUSD (0xa9012a055bd4e0eDfF8Ce09f960291C09D5322dC) for the demo.
+    address: optionalAddress(process.env.NEXT_PUBLIC_AUSD_ADDRESS || deployedAddresses.ausd),
     decimals: Number(process.env.NEXT_PUBLIC_AUSD_DECIMALS || 6),
   },
 
-  // TODO(contracts): fill in once deployed. Unused while useMock is true.
+  // Defaults to the Monad testnet deployment (smart-contract/README.md); env vars override. Unused while useMock is true.
   contracts: {
-    treasury: optionalAddress(process.env.NEXT_PUBLIC_TREASURY_ADDRESS),
-    batchPayout: optionalAddress(process.env.NEXT_PUBLIC_BATCH_PAYOUT_ADDRESS),
-    claimEscrow: optionalAddress(process.env.NEXT_PUBLIC_CLAIM_ESCROW_ADDRESS),
+    treasury: optionalAddress(process.env.NEXT_PUBLIC_TREASURY_ADDRESS || deployedAddresses.treasury),
+    batchPayout: optionalAddress(process.env.NEXT_PUBLIC_BATCH_PAYOUT_ADDRESS || deployedAddresses.batchPayout),
+    claimEscrow: optionalAddress(process.env.NEXT_PUBLIC_CLAIM_ESCROW_ADDRESS || deployedAddresses.claimEscrow),
   },
 
   // Display name shown to payees ("You've been paid $X by <Platform>").

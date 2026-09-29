@@ -3,6 +3,7 @@ import {
   isHex,
   keccak256,
   recoverMessageAddress,
+  toBytes,
   type Address,
   type Hex,
 } from "viem";
@@ -63,6 +64,31 @@ export async function signClaim(privateKey: Hex, message: ClaimMessage): Promise
 
 export async function recoverClaimSigner(message: ClaimMessage, signature: Hex): Promise<Address> {
   return recoverMessageAddress({ message: { raw: claimDigest(message) }, signature });
+}
+
+// --- Verifier co-signature ---------------------------------------------------
+//
+// The link key alone isn't enough to claim: Fanout's verifier also signs, but only after the
+// server has checked that the claimer signed in with the email the payout was sent to.
+//
+//   digest       = keccak256(abi.encode(VERIFY_TAG, claimSigner, recipient, claimContract, chainId))
+//   verification = personal_sign(digest)   // by the verifier key, server-side only
+
+export const VERIFY_TAG = keccak256(toBytes("fanout.claim.verify"));
+
+export type VerifyMessage = ClaimMessage & { claimSigner: Address };
+
+export function verifyDigest({ claimSigner, recipient, claimContract, chainId }: VerifyMessage): Hex {
+  return keccak256(
+    encodeAbiParameters(
+      [{ type: "bytes32" }, { type: "address" }, { type: "address" }, { type: "address" }, { type: "uint256" }],
+      [VERIFY_TAG, claimSigner, recipient, claimContract, BigInt(chainId)],
+    ),
+  );
+}
+
+export async function signVerification(verifierKey: Hex, message: VerifyMessage): Promise<Hex> {
+  return privateKeyToAccount(verifierKey).signMessage({ message: { raw: verifyDigest(message) } });
 }
 
 // --- Links -----------------------------------------------------------------

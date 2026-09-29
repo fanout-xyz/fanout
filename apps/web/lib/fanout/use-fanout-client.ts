@@ -7,8 +7,8 @@ import { createFanoutClient, type FanoutClient } from "./client";
 
 /** FanoutClient bound to the signed-in user. */
 export function useFanoutClient(): FanoutClient {
-  const { user } = useAuth();
+  const { user, getAccessToken } = useAuth();
   const { data: walletClient } = useWalletClient();
   const account = user?.address;
-  return useMemo(() => createFanoutClient({ account, walletClient }), [account, walletClient]);
+  return useMemo(() => createFanoutClient({ account, walletClient, getAccessToken }), [account, walletClient, getAccessToken]);
 }

@@ -4,7 +4,8 @@ import { parseUsd } from "./money";
 
 /** Payout CSV: columns email, amount, note (note optional). Header names are case-insensitive. */
 
-export const MAX_ROWS = 500;
+/** Matches BatchPayout.MAX_ROWS onchain: a full batch must fit in one transaction. */
+export const MAX_ROWS = 150;
 export const MAX_NOTE_LENGTH = 140;
 export const MAX_FILE_BYTES = 1_000_000;
 

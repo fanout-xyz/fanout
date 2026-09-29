@@ -1,8 +1,8 @@
 "use client";
 
-import { PrivyProvider, usePrivy } from "@privy-io/react-auth";
+import { PrivyProvider, useCreateWallet, usePrivy } from "@privy-io/react-auth";
 import { WagmiProvider, createConfig } from "@privy-io/wagmi";
-import { useMemo, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, type ComponentProps, type ReactNode } from "react";
 import { getAddress } from "viem";
 import { http } from "wagmi";
 import { activeChain } from "@/lib/chains";
@@ -15,8 +15,32 @@ const wagmiConfig = createConfig({
   ssr: true,
 });
 
+type SetActiveWalletForWagmi = NonNullable<ComponentProps<typeof WagmiProvider>["setActiveWalletForWagmi"]>;
+
+// Connect wagmi to the wallet the app shows (user.wallet) explicitly. Without this, @privy-io/wagmi
+// relies on a reconnect that can silently leave wagmi disconnected, and a user can hold more than one
+// embedded wallet ("privy" and "privy-v2"), so picking by type can sign from a different address.
+const pickEmbeddedWallet: SetActiveWalletForWagmi = ({ wallets, user }) => {
+  const primary = user?.wallet?.address.toLowerCase();
+  return wallets.find((w) => w.address.toLowerCase() === primary);
+};
+
 function PrivyBridge({ children }: { children: ReactNode }) {
-  const { ready, authenticated, user, login, logout } = usePrivy();
+  const { ready, authenticated, user, login, logout, getAccessToken } = usePrivy();
+  const { createWallet } = useCreateWallet();
+
+  // createOnLogin only applies if the dashboard allows it, so make sure every signed-in
+  // user ends up with an embedded wallet regardless of that setting. Once per session.
+  const creating = useRef(false);
+  const needsWallet = ready && authenticated && !!user && !user.wallet;
+  useEffect(() => {
+    if (!needsWallet || creating.current) return;
+    creating.current = true;
+    createWallet().catch((err: unknown) => {
+      console.error("Couldn't create an embedded wallet", err);
+      creating.current = false;
+    });
+  }, [needsWallet, createWallet]);
 
   const value = useMemo<AuthContextValue>(
     () => ({
@@ -31,8 +55,9 @@ function PrivyBridge({ children }: { children: ReactNode }) {
         : null,
       login: () => login(),
       logout,
+      getAccessToken,
     }),
-    [ready, authenticated, user, login, logout],
+    [ready, authenticated, user, login, logout, getAccessToken],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
@@ -55,7 +80,7 @@ export function PrivyAuthProvider({ appId, children }: { appId: string; children
         appearance: { walletChainType: "ethereum-only", landingHeader: "Sign in to Fanout" },
       }}
     >
-      <WagmiProvider config={wagmiConfig}>
+      <WagmiProvider config={wagmiConfig} setActiveWalletForWagmi={pickEmbeddedWallet}>
         <PrivyBridge>{children}</PrivyBridge>
       </WagmiProvider>
     </PrivyProvider>

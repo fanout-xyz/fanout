@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "lib": ["es2023"],
+    // "preserve" rather than the template's "node20": tests import apps/web/lib/fanout/claim-keys.ts,
+    // and apps/web isn't "type": "module", so node20 would type-check it as CommonJS.
+    "module": "preserve",
+    "target": "es2023",
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "types": ["node"],
+    "verbatimModuleSyntax": true
+  }
+}

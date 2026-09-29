@@ -1,6 +1,6 @@
-import { zeroAddress } from "viem";
 import { beforeEach, describe, expect, it } from "vitest";
 import { activeChain } from "@/lib/chains";
+import { claimVerifyingContract } from "@/lib/config";
 import { generateClaimKey, signClaim } from "./claim-keys";
 import { emptyState, engine, type MockState } from "./mock-engine";
 import { NotFoundError } from "./types";
@@ -10,9 +10,9 @@ const platform = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const payee = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 const friend = "0xcccccccccccccccccccccccccccccccccccccccc";
 
-// No claim contract configured in tests, so signatures bind to the zero address.
+// Sign exactly as the claim page does, against whichever ClaimEscrow the config points at.
 const sign = (key: `0x${string}`, recipient: `0x${string}`) =>
-  signClaim(key, { recipient, claimContract: zeroAddress, chainId: activeChain.id });
+  signClaim(key, { recipient, claimContract: claimVerifyingContract(), chainId: activeChain.id });
 
 describe("mock engine", () => {
   let s: MockState;

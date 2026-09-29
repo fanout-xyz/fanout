@@ -1,0 +1,55 @@
+{
+  "_format": "hh3-sol-build-info-1",
+  "id": "solc-0_8_30-367f2796ed1549d05cf759eace3e75cc8e1d1e8f",
+  "solcVersion": "0.8.30",
+  "solcLongVersion": "0.8.30+commit.73712a01",
+  "compilerType": "solc",
+  "toolVersions": {
+    "hardhat": "3.18.0"
+  },
+  "userSourceNameMap": {
+    "contracts/BatchPayout.sol": "project/contracts/BatchPayout.sol"
+  },
+  "input": {
+    "language": "Solidity",
+    "settings": {
+      "evmVersion": "cancun",
+      "optimizer": {
+        "enabled": true,
+        "runs": 200
+      },
+      "outputSelection": {
+        "*": {
+          "": [
+            "ast"
+          ],
+          "*": [
+            "abi",
+            "evm.bytecode.linkReferences",
+            "evm.bytecode.object",
+            "evm.bytecode.opcodes",
+            "evm.bytecode.sourceMap",
+            "evm.deployedBytecode.immutableReferences",
+            "evm.deployedBytecode.linkReferences",
+            "evm.deployedBytecode.object",
+            "evm.deployedBytecode.opcodes",
+            "evm.deployedBytecode.sourceMap",
+            "evm.methodIdentifiers"
+          ]
+        }
+      },
+      "remappings": []
+    },
+    "sources": {
+      "project/contracts/BatchPayout.sol": {
+        "content": "// SPDX-License-Identifier: MIT\npragma solidity ^0.8.24;\n\nimport {IClaimEscrow} from \"./interfaces/IClaimEscrow.sol\";\nimport {ITreasury} from \"./interfaces/ITreasury.sol\";\n\n/// Turns one approved CSV into many claims in a single transaction.\ncontract BatchPayout {\n    /// ~85k gas per row, so a full batch is ~13M gas: under the 16.7M per-transaction cap (EIP-7825) with headroom.\n    uint256 public constant MAX_ROWS = 150;\n\n    struct Batch {\n        address platform;\n        uint64 createdAt;\n        uint256 total;\n        address[] claimSigners;\n    }\n\n    ITreasury public immutable treasury;\n    IClaimEscrow public immutable claimEscrow;\n    /// How long a claim stays claimable before anyone can refund it to the platform.\n    uint64 public immutable claimTtl;\n\n    uint256 public nextBatchId = 1;\n    mapping(uint256 batchId => Batch) private _batches;\n\n    event BatchCreated(uint256 indexed batchId, address indexed platform, uint256 total, uint256 count);\n\n    error ZeroAddress();\n    error EmptyBatch();\n    error TooManyRows(uint256 count, uint256 max);\n    error LengthMismatch();\n\n    constructor(ITreasury treasury_, IClaimEscrow claimEscrow_, uint64 claimTtl_) {\n        if (address(treasury_) == address(0) || address(claimEscrow_) == address(0)) revert ZeroAddress();\n        treasury = treasury_;\n        claimEscrow = claimEscrow_;\n        claimTtl = claimTtl_;\n    }\n\n    /// `emailHashes` entries are bytes32(0) when a row has no email. They are for display only.\n    function createBatch(address[] calldata claimSigners, uint256[] calldata amounts, bytes32[] calldata emailHashes)\n        external\n        returns (uint256 batchId)\n    {\n        uint256 n = claimSigners.length;\n        if (n == 0) revert EmptyBatch();\n        if (n > MAX_ROWS) revert TooManyRows(n, MAX_ROWS);\n        if (amounts.length != n || emailHashes.length != n) revert LengthMismatch();\n\n        uint256 total;\n        for (uint256 i; i < n; ++i) {\n            total += amounts[i];\n        }\n\n        batchId = nextBatchId++;\n        _batches[batchId] = Batch(msg.sender, uint64(block.timestamp), total, claimSigners);\n\n        // Row checks (zero amount, zero or reused signer) happen in ClaimEscrow.open.\n        treasury.debit(msg.sender, total);\n        claimEscrow.open(batchId, msg.sender, claimSigners, amounts, emailHashes, uint64(block.timestamp) + claimTtl);\n\n        emit BatchCreated(batchId, msg.sender, total, n);\n    }\n\n    /// Returns platform = address(0) when the batch doesn't exist.\n    function getBatch(uint256 batchId)\n        external\n        view\n        returns (address platform, uint64 createdAt, uint256 total, address[] memory claimSigners)\n    {\n        Batch storage b = _batches[batchId];\n        return (b.platform, b.createdAt, b.total, b.claimSigners);\n    }\n}\n"
+      },
+      "project/contracts/interfaces/IClaimEscrow.sol": {
+        "content": "// SPDX-License-Identifier: MIT\npragma solidity ^0.8.24;\n\ninterface IClaimEscrow {\n    /// Records one claim per row. The AUSD must already be in the escrow. BatchPayout only.\n    function open(\n        uint256 batchId,\n        address platform,\n        address[] calldata claimSigners,\n        uint256[] calldata amounts,\n        bytes32[] calldata emailHashes,\n        uint64 expiresAt\n    ) external;\n}\n"
+      },
+      "project/contracts/interfaces/ITreasury.sol": {
+        "content": "// SPDX-License-Identifier: MIT\npragma solidity ^0.8.24;\n\ninterface ITreasury {\n    function balanceOf(address platform) external view returns (uint256);\n\n    /// Lowers `platform`'s balance and sends the AUSD to ClaimEscrow. BatchPayout only.\n    function debit(address platform, uint256 amount) external;\n\n    /// Adds a refund back to `platform`'s balance. The AUSD must already be in the Treasury. ClaimEscrow only.\n    function credit(address platform, uint256 amount) external;\n}\n"
+      }
+    }
+  }
+}

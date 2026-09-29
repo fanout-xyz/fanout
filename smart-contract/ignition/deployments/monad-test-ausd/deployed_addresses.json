@@ -1,0 +1,6 @@
+{
+  "FanoutTestAusd#MockAUSD": "0x34C2CFdE74D0edbABF2F4382CEbD9F600048d17E",
+  "FanoutTestAusd#Treasury": "0x2ca2f7d60d3b7e97ffdF2A8949e874025bA8554C",
+  "FanoutTestAusd#ClaimEscrow": "0xCE20c4883A5f7bE23AB8b441E2Ea123c3eEe289D",
+  "FanoutTestAusd#BatchPayout": "0x40E848Fc0F8a6d2779fCEF1DCaE329e274a4Def9"
+}

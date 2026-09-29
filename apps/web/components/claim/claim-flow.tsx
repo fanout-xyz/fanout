@@ -173,6 +173,8 @@ function signInHint(provider: "privy" | "mock") {
 function humanClaimError(err: unknown): string {
   const msg = err instanceof Error ? err.message : "";
   if (/already been claimed/i.test(msg)) return "This payment has already been claimed.";
+  if (/different email/i.test(msg)) return "This payment was sent to a different email. Sign out, then sign in with the email address it was sent to.";
+  if (/sign in/i.test(msg)) return "Your session has expired. Sign in again to claim.";
   if (/expired|returned to the sender/i.test(msg)) return "This link has expired. Ask the sender to send it again.";
   if (/reach the server|connection/i.test(msg)) return "You seem to be offline. Check your connection and try again.";
   if (err instanceof NotFoundError) return "This link isn't valid. Ask the sender to send it again.";
