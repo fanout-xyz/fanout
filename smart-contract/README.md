@@ -13,7 +13,7 @@ Three Solidity contracts on Monad testnet that move the money for Fanout: **Trea
 | `monad-test-ausd` | tAUSD | No: the link alone can claim | No |
 | `chain-10143` | Real AUSD | No | No |
 
-**Getting test AUSD.** Agora's faucet on Monad testnet was refilled after 2026-09-30 (it held 1 billion AUSD on 2026-09-30). Call `requestFunds(<recipient>)` on [`0xd236c18D274E54FAccC3dd9DDA4b27965a73ee6C`](https://testnet.monadscan.com/address/0xd236c18D274E54FAccC3dd9DDA4b27965a73ee6C): 10,000 AUSD per call, once a minute per caller (`MaxFrequencyExceeded` otherwise), up to 100,000 per wallet. The argument is the recipient; anyone can pay the gas.
+**Getting test AUSD.** Agora's faucet on Monad testnet was empty early on 2026-09-30 and refilled later that day (it held 1 billion AUSD when checked). Call `requestFunds(<recipient>)` on [`0xd236c18D274E54FAccC3dd9DDA4b27965a73ee6C`](https://testnet.monadscan.com/address/0xd236c18D274E54FAccC3dd9DDA4b27965a73ee6C): 10,000 AUSD per call, once a minute per caller (`MaxFrequencyExceeded` otherwise), up to 100,000 per wallet. The argument is the recipient; anyone can pay the gas.
 
 ### Active: `monad-ausd` (real AUSD + claim verifier), deployed 2026-09-30
 
