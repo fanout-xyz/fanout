@@ -24,6 +24,9 @@ export const monadTestnet = defineChain({
 
 export const activeChain = monadTestnet;
 
+/** Testnet MON for network fees. */
+export const monFaucetUrl = "https://faucet.monad.xyz";
+
 export function explorerTxUrl(txHash: string): string {
   return `${activeChain.blockExplorers.default.url}/tx/${txHash}`;
 }

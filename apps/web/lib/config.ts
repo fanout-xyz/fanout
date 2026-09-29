@@ -18,7 +18,7 @@ export const config = {
     symbol: "AUSD",
     // Agora AUSD on Monad testnet: 0xa9012a055bd4e0eDfF8Ce09f960291C09D5322dC
     // (docs.agora.finance/developer/contract-deployments; decimals()=6 confirmed onchain).
-    address: optionalAddress(process.env.NEXT_PUBLIC_AUSD_ADDRESS),
+    address: optionalAddress(process.env.NEXT_PUBLIC_AUSD_ADDRESS || "0xa9012a055bd4e0eDfF8Ce09f960291C09D5322dC"),
     decimals: Number(process.env.NEXT_PUBLIC_AUSD_DECIMALS || 6),
   },
 

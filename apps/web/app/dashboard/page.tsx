@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { BalanceCard } from "@/components/dashboard/balance-card";
+import { FundingCard } from "@/components/dashboard/funding-card";
 import { PayoutsTable } from "@/components/dashboard/payouts-table";
 import { Button } from "@/components/ui/button";
+import { config } from "@/lib/config";
 
 export default function DashboardPage() {
   return (
@@ -14,6 +16,8 @@ export default function DashboardPage() {
       </div>
       <BalanceCard />
       <PayoutsTable />
+      {/* The platform's own AUSD and MON only matter onchain. */}
+      {!config.useMock && <FundingCard />}
     </div>
   );
 }

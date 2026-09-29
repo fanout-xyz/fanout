@@ -1,152 +1,290 @@
 import {
+  BaseError,
+  ContractFunctionRevertedError,
   createPublicClient,
+  formatUnits,
   http,
   parseEventLogs,
+  UserRejectedRequestError,
   zeroAddress,
   zeroHash,
   type Address,
   type Hex,
   type PublicClient,
+  type WalletClient,
 } from "viem";
-import { activeChain } from "@/lib/chains";
+import { activeChain, monFaucetUrl } from "@/lib/chains";
 import { config } from "@/lib/config";
+import { MAX_ROWS } from "@/lib/csv";
 import { batchPayoutAbi, claimEscrowAbi, erc20Abi, treasuryAbi } from "./abis";
 import type { FanoutClient, FanoutClientContext } from "./client";
-import { NotFoundError, type PayoutStatus } from "./types";
+import { recallActivity, recallBatchTx, rememberActivity, rememberBatchTx } from "./local-records";
+import { NotFoundError, type BatchSummary, type PayoutStatus } from "./types";
 
 /**
- * viem implementation against the deployed contracts (ABIs in ./abis).
- * Enable with NEXT_PUBLIC_USE_MOCK=false.
+ * FanoutClient against the deployed contracts (Treasury, BatchPayout, ClaimEscrow on Monad testnet).
+ * Platform writes are signed by the signed-in account (Privy embedded wallet, via wagmi).
+ * Claims go through our relayer (/api/relay/claim), which pays gas: the signature binds the
+ * recipient, so anyone may submit it.
  */
 
 const STATUS: readonly PayoutStatus[] = ["sent", "claimed", "refunded"];
 
+/**
+ * Every custom error from all three contracts. They call into each other (BatchPayout ->
+ * Treasury.debit, ClaimEscrow.open), so a revert can come from a contract other than the one
+ * called; adding all errors to each simulation lets viem decode it by name.
+ */
+export const ALL_CONTRACT_ERRORS = [...treasuryAbi, ...batchPayoutAbi, ...claimEscrowAbi].filter((x) => x.type === "error");
+/** How many recent batches the dashboard scans (there's no per-platform view onchain). */
+const LIST_SCAN_LIMIT = 200;
+
 let publicClient: PublicClient | null = null;
-function reader(): PublicClient {
+export function reader(): PublicClient {
   return (publicClient ??= createPublicClient({ chain: activeChain, transport: http() }));
 }
 
-function need<T>(value: T | undefined, name: string): T {
-  if (!value) throw new Error(`${name} is not configured. Set it in .env.local.`);
+const usd = (amount: bigint) =>
+  new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(Number(formatUnits(amount, config.stablecoin.decimals)));
+
+/** Contract error name -> what to tell the person. */
+const REVERT_MESSAGES: Record<string, string> = {
+  InsufficientBalance: "Not enough in your payout balance for this.",
+  TooManyRows: `A payout can have at most ${MAX_ROWS} people. Split the file.`,
+  EmptyBatch: "A payout needs at least one person.",
+  LengthMismatch: "Something's off with this payout's rows. Re-upload the file.",
+  ClaimSignerUsed: "One of these claim links was already used. Start the payout again.",
+  ZeroAmount: "Every amount must be more than $0.00.",
+  ZeroAddress: "An address in this request is empty.",
+  UnknownClaim: "This payment link isn't valid.",
+  NotClaimable: "This payment has already been claimed or returned.",
+  BadSignature: "This payment link isn't valid.",
+  NotExpired: "This payment hasn't expired yet.",
+  Unauthorized: "This account isn't allowed to do that.",
+};
+
+/** Turns wallet/chain errors into plain sentences; keeps NotFoundError as is. */
+export function friendlyChainError(err: unknown): Error {
+  if (err instanceof NotFoundError) return err;
+  if (err instanceof BaseError) {
+    if (err.walk((e) => e instanceof UserRejectedRequestError)) return new Error("You cancelled the request. Nothing was sent.");
+    const revert = err.walk((e) => e instanceof ContractFunctionRevertedError);
+    if (revert instanceof ContractFunctionRevertedError) {
+      const name = revert.data?.errorName ?? "";
+      if (name === "UnknownClaim" || name === "BadSignature") return new NotFoundError(REVERT_MESSAGES[name]);
+      if (REVERT_MESSAGES[name]) return new Error(REVERT_MESSAGES[name]);
+    }
+    if (/insufficient funds/i.test(err.message)) {
+      return new Error(`Your account needs a little MON for network fees. Get test MON at ${monFaucetUrl}.`);
+    }
+    return new Error(err.shortMessage || "The network request failed. Try again.");
+  }
+  return err instanceof Error ? err : new Error("Something went wrong. Try again.");
+}
+
+async function guard<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    throw friendlyChainError(err);
+  }
+}
+
+/** Config addresses are optional overrides; fail clearly if one is missing. */
+export function need(value: Address | undefined, name: string): Address {
+  if (!value) throw new Error(`${name} is not configured. Set it in apps/web/.env.local (see .env.example).`);
   return value;
 }
 
 export function createOnchainClient(ctx: FanoutClientContext): FanoutClient {
-  const addr = {
-    token: () => need(config.stablecoin.address, "NEXT_PUBLIC_AUSD_ADDRESS"),
-    treasury: () => need(config.contracts.treasury, "NEXT_PUBLIC_TREASURY_ADDRESS"),
-    batchPayout: () => need(config.contracts.batchPayout, "NEXT_PUBLIC_BATCH_PAYOUT_ADDRESS"),
-    claimEscrow: () => need(config.contracts.claimEscrow, "NEXT_PUBLIC_CLAIM_ESCROW_ADDRESS"),
+  const c = {
+    get treasury() {
+      return need(config.contracts.treasury, "NEXT_PUBLIC_TREASURY_ADDRESS");
+    },
+    get batchPayout() {
+      return need(config.contracts.batchPayout, "NEXT_PUBLIC_BATCH_PAYOUT_ADDRESS");
+    },
+    get claimEscrow() {
+      return need(config.contracts.claimEscrow, "NEXT_PUBLIC_CLAIM_ESCROW_ADDRESS");
+    },
   };
+  const tokenAddress = () => need(config.stablecoin.address, "NEXT_PUBLIC_AUSD_ADDRESS");
 
-  function writer() {
+  async function signer(): Promise<{ wc: WalletClient; account: Address }> {
     const wc = ctx.walletClient;
-    const account = wc?.account ?? ctx.account;
+    const account = (wc?.account?.address ?? ctx.account) as Address | undefined;
     if (!wc || !account) throw new Error("Sign in first.");
+    if ((await wc.getChainId()) !== activeChain.id) await wc.switchChain({ id: activeChain.id });
     return { wc, account };
   }
 
-  async function write(
-    request: Parameters<NonNullable<FanoutClientContext["walletClient"]>["writeContract"]>[0],
-  ): Promise<Hex> {
-    const { wc } = writer();
-    const hash = await wc.writeContract(request);
+  /** Simulate (to surface revert reasons before paying gas), send, wait for the receipt. */
+  async function write(params: Parameters<PublicClient["simulateContract"]>[0]) {
+    const { wc, account } = await signer();
+    const { request } = await reader().simulateContract({
+      ...params,
+      abi: [...(params.abi as readonly unknown[]), ...ALL_CONTRACT_ERRORS],
+      account,
+    } as Parameters<PublicClient["simulateContract"]>[0]);
+    // Pass the wallet's own account object: works for Privy (JSON-RPC) and local keys alike.
+    const hash = await wc.writeContract({ ...request, account: wc.account ?? account, chain: activeChain } as Parameters<WalletClient["writeContract"]>[0]);
     const receipt = await reader().waitForTransactionReceipt({ hash });
-    if (receipt.status !== "success") throw new Error("Transaction failed.");
-    return hash;
+    if (receipt.status !== "success") throw new Error("The transaction failed onchain. Nothing changed.");
+    return receipt;
+  }
+
+  async function statusesOf(signers: readonly Address[]) {
+    if (signers.length === 0) return [];
+    return reader().multicall({
+      allowFailure: false,
+      contracts: signers.map((s) => ({ address: c.claimEscrow, abi: claimEscrowAbi, functionName: "claims" as const, args: [s] as const })),
+    });
   }
 
   return {
-    async getTreasuryBalance(platform) {
-      return reader().readContract({ address: addr.treasury(), abi: treasuryAbi, functionName: "balanceOf", args: [platform] });
-    },
+    getTreasuryBalance: (platform) =>
+      guard(() => reader().readContract({ address: c.treasury, abi: treasuryAbi, functionName: "balanceOf", args: [platform] })),
 
-    async deposit(amount) {
-      const { account } = writer();
-      await write({ account, chain: activeChain, address: addr.token(), abi: erc20Abi, functionName: "approve", args: [addr.treasury(), amount] });
-      const txHash = await write({ account, chain: activeChain, address: addr.treasury(), abi: treasuryAbi, functionName: "deposit", args: [amount] });
-      return { txHash };
-    },
+    deposit: (amount) =>
+      guard(async () => {
+        const { account } = await signer();
+        const [held, allowance] = await Promise.all([
+          reader().readContract({ address: tokenAddress(), abi: erc20Abi, functionName: "balanceOf", args: [account] }),
+          reader().readContract({ address: tokenAddress(), abi: erc20Abi, functionName: "allowance", args: [account, c.treasury] }),
+        ]);
+        if (held < amount) throw new Error(`Your account holds ${usd(held)} in AUSD, less than ${usd(amount)}. Add AUSD to your account first.`);
+        if (allowance < amount) {
+          await write({ address: tokenAddress(), abi: erc20Abi, functionName: "approve", args: [c.treasury, amount] });
+        }
+        const receipt = await write({ address: c.treasury, abi: treasuryAbi, functionName: "deposit", args: [amount] });
+        return { txHash: receipt.transactionHash };
+      }),
 
-    async createBatchPayout(rows) {
-      const { wc, account } = writer();
-      const hash = await wc.writeContract({
-        account,
-        chain: activeChain,
-        address: addr.batchPayout(),
-        abi: batchPayoutAbi,
-        functionName: "createBatch",
-        args: [rows.map((r) => r.claimSigner), rows.map((r) => r.amount), rows.map((r) => r.emailHash ?? zeroHash)],
-      });
-      const receipt = await reader().waitForTransactionReceipt({ hash });
-      if (receipt.status !== "success") throw new Error("Transaction failed.");
-      const [event] = parseEventLogs({ abi: batchPayoutAbi, eventName: "BatchCreated", logs: receipt.logs });
-      if (!event) throw new Error("Payout sent but no BatchCreated event found.");
-      return { batchId: event.args.batchId.toString(), txHash: hash };
-    },
+    createBatchPayout: (rows) =>
+      guard(async () => {
+        if (rows.length > MAX_ROWS) throw new Error(REVERT_MESSAGES.TooManyRows);
+        const receipt = await write({
+          address: c.batchPayout,
+          abi: batchPayoutAbi,
+          functionName: "createBatch",
+          args: [rows.map((r) => r.claimSigner), rows.map((r) => r.amount), rows.map((r) => r.emailHash ?? zeroHash)],
+        });
+        const [event] = parseEventLogs({ abi: batchPayoutAbi, eventName: "BatchCreated", logs: receipt.logs });
+        if (!event) throw new Error("The payout went through, but its number couldn't be read. Check your payouts list.");
+        const batchId = event.args.batchId.toString();
+        rememberBatchTx(activeChain.id, c.batchPayout, batchId, receipt.transactionHash);
+        return { batchId, txHash: receipt.transactionHash };
+      }),
 
-    async getBatch(batchId) {
-      const [platform, createdAt, total, signers] = await reader().readContract({
-        address: addr.batchPayout(),
-        abi: batchPayoutAbi,
-        functionName: "getBatch",
-        args: [BigInt(batchId)],
-      });
-      if (platform === zeroAddress) throw new NotFoundError(`Payout #${batchId} doesn't exist.`);
-      const claims = await reader().multicall({
-        allowFailure: false,
-        contracts: signers.map((s) => ({ address: addr.claimEscrow(), abi: claimEscrowAbi, functionName: "getClaim" as const, args: [s] as const })),
-      });
-      // TODO(indexer): the creating tx hash isn't stored onchain; read it from BatchCreated via Envio.
-      const txHash = zeroHash;
-      return {
-        id: batchId,
-        createdAt: Number(createdAt) * 1000,
-        total,
-        txHash,
-        rows: signers.map((claimSigner, i) => {
-          const [amount, , status, emailHash] = claims[i];
-          return { claimSigner, amount, status: STATUS[status], emailHash: emailHash === zeroHash ? undefined : emailHash };
-        }),
-      };
-    },
+    getBatch: (batchId) =>
+      guard(async () => {
+        if (!/^\d+$/.test(batchId)) throw new NotFoundError(`Payout #${batchId} doesn't exist.`);
+        const [platform, createdAt, total, signers] = await reader().readContract({
+          address: c.batchPayout,
+          abi: batchPayoutAbi,
+          functionName: "getBatch",
+          args: [BigInt(batchId)],
+        });
+        if (platform === zeroAddress) throw new NotFoundError(`Payout #${batchId} doesn't exist.`);
+        const claims = await statusesOf(signers);
+        return {
+          id: batchId,
+          createdAt: Number(createdAt) * 1000,
+          total,
+          txHash: recallBatchTx(activeChain.id, c.batchPayout, batchId) ?? zeroHash,
+          rows: signers.map((claimSigner, i) => {
+            const [amount, , status, , emailHash] = claims[i];
+            return { claimSigner, amount, status: STATUS[status], emailHash: emailHash === zeroHash ? undefined : emailHash };
+          }),
+        };
+      }),
 
-    async getClaim(claimSigner) {
-      const [amount, platform, status] = await reader().readContract({
-        address: addr.claimEscrow(),
-        abi: claimEscrowAbi,
-        functionName: "getClaim",
-        args: [claimSigner],
-      });
-      if (amount === 0n) throw new NotFoundError("This payment link isn't valid.");
-      return { amount, platform, status: STATUS[status] };
-    },
+    getClaim: (claimSigner) =>
+      guard(async () => {
+        const [amount, platform, status] = await reader().readContract({
+          address: c.claimEscrow,
+          abi: claimEscrowAbi,
+          functionName: "getClaim",
+          args: [claimSigner],
+        });
+        if (amount === 0n) throw new NotFoundError("This payment link isn't valid.");
+        return { amount, platform, status: STATUS[status] };
+      }),
 
-    async claim(claimSigner, recipient, signature) {
-      // TODO(gas): the payee's new wallet holds no MON. This needs a relayer or gas
-      // sponsorship; the signature already binds the recipient, so anyone can submit it.
-      const { account } = writer();
-      const txHash = await write({ account, chain: activeChain, address: addr.claimEscrow(), abi: claimEscrowAbi, functionName: "claim", args: [claimSigner, recipient, signature] });
-      return { txHash };
-    },
+    claim: (claimSigner, recipient, signature) =>
+      guard(async () => {
+        let res: Response;
+        try {
+          res = await fetch("/api/relay/claim", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ claimSigner, recipient, signature }),
+          });
+        } catch {
+          throw new Error("Can't reach the server. Check your connection and try again.");
+        }
+        const body = (await res.json().catch(() => ({}))) as { txHash?: Hex; amount?: string; error?: string; notFound?: boolean };
+        if (!res.ok || !body.txHash) {
+          const message = body.error ?? "Something went wrong and nothing was claimed. Try again.";
+          throw body.notFound ? new NotFoundError(message) : new Error(message);
+        }
+        rememberActivity(activeChain.id, recipient, {
+          kind: "received",
+          amount: BigInt(body.amount ?? "0"),
+          counterparty: zeroAddress,
+          txHash: body.txHash,
+          timestamp: Date.now(),
+        });
+        return { txHash: body.txHash };
+      }),
 
-    async getPayeeBalance(address) {
-      return reader().readContract({ address: addr.token(), abi: erc20Abi, functionName: "balanceOf", args: [address] });
-    },
+    getPayeeBalance: (address) =>
+      guard(() => reader().readContract({ address: tokenAddress(), abi: erc20Abi, functionName: "balanceOf", args: [address] })),
 
-    async send(to: Address, amount: bigint) {
-      // TODO(gas): same gas problem as claim.
-      const { account } = writer();
-      const txHash = await write({ account, chain: activeChain, address: addr.token(), abi: erc20Abi, functionName: "transfer", args: [to, amount] });
-      return { txHash };
-    },
+    send: (to, amount) =>
+      guard(async () => {
+        const { account } = await signer();
+        const receipt = await write({ address: tokenAddress(), abi: erc20Abi, functionName: "transfer", args: [to, amount] });
+        rememberActivity(activeChain.id, account, {
+          kind: "sent",
+          amount,
+          counterparty: to,
+          txHash: receipt.transactionHash,
+          timestamp: Date.now(),
+        });
+        return { txHash: receipt.transactionHash };
+      }),
 
-    async listBatches() {
-      throw new Error("Batch history isn't available onchain yet (needs the indexer).");
-    },
+    listBatches: (platform) =>
+      guard(async () => {
+        const next = await reader().readContract({ address: c.batchPayout, abi: batchPayoutAbi, functionName: "nextBatchId" });
+        const last = Number(next) - 1;
+        const first = Math.max(1, last - LIST_SCAN_LIMIT + 1);
+        if (last < 1) return [];
+        const ids = Array.from({ length: last - first + 1 }, (_, i) => BigInt(last - i));
+        const batches = await reader().multicall({
+          allowFailure: false,
+          contracts: ids.map((id) => ({ address: c.batchPayout, abi: batchPayoutAbi, functionName: "getBatch" as const, args: [id] as const })),
+        });
+        const mine = batches
+          .map(([p, createdAt, total, signers], i) => ({ id: ids[i].toString(), p, createdAt, total, signers }))
+          .filter((b) => b.p.toLowerCase() === platform.toLowerCase());
+        const claims = await statusesOf(mine.flatMap((b) => b.signers));
+        let offset = 0;
+        return mine.map((b): BatchSummary => {
+          const slice = claims.slice(offset, (offset += b.signers.length));
+          return {
+            id: b.id,
+            createdAt: Number(b.createdAt) * 1000,
+            total: b.total,
+            txHash: recallBatchTx(activeChain.id, c.batchPayout, b.id) ?? zeroHash,
+            rowCount: b.signers.length,
+            claimedCount: slice.filter(([, , status]) => status === 1).length,
+          };
+        });
+      }),
 
-    async getPayeeHistory() {
-      throw new Error("Wallet history isn't available onchain yet (needs the indexer).");
-    },
+    // Until an indexer exists: what this device recorded (claims and sends made here).
+    getPayeeHistory: async (address) => recallActivity(activeChain.id, address),
   };
 }

@@ -15,7 +15,8 @@ export function Providers({ children }: { children: ReactNode }) {
 
   return (
     // next-themes injects a blocking script that sets data-theme before first paint (no flash).
-    <ThemeProvider attribute="data-theme" defaultTheme="system" enableSystem>
+    // Light by default for everyone; Dark (or following the device) only if the user picks it.
+    <ThemeProvider attribute="data-theme" defaultTheme="light" enableSystem>
       <ThemeColorSync />
       <QueryClientProvider client={queryClient}>
         <TooltipProvider delayDuration={300}>
