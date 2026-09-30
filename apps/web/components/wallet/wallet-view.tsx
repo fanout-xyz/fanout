@@ -3,9 +3,10 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { LocalAmount } from "@/components/payee/local-amount";
 import { useAuth } from "@/lib/auth/provider";
 import { usePayeeBalance } from "@/lib/fanout/queries";
-import { formatUsd } from "@/lib/money";
+import { formatUsd, toCents } from "@/lib/money";
 import { HistoryList } from "./history-list";
 import { PayeeAuthGate } from "./payee-auth-gate";
 import { SendFlow } from "./send-flow";
@@ -43,9 +44,12 @@ function Wallet() {
             </Button>
           </div>
         ) : (
-          <p className="mt-2 font-display text-[clamp(48px,14vw,64px)] leading-none tracking-[-0.03em] tabular-nums">
-            {formatUsd(balance.data)}
-          </p>
+          <>
+            <p className="mt-2 font-display text-[clamp(48px,14vw,64px)] leading-none tracking-[-0.03em] tabular-nums">
+              {formatUsd(balance.data)}
+            </p>
+            {balance.data > 0n && <LocalAmount cents={toCents(balance.data)} className="mt-3" />}
+          </>
         )}
         <p className="mt-3 text-sm text-muted">Held in US dollars</p>
       </section>
