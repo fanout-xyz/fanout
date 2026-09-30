@@ -9,6 +9,7 @@ import type { Address, Hex } from "viem";
 import { PetalsMark } from "@/components/brand/petals-mark";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { AccountSetup } from "@/components/payee/account-setup";
 import { useAuth } from "@/lib/auth/provider";
 import { activeChain } from "@/lib/chains";
 import { claimVerifyingContract, config } from "@/lib/config";
@@ -16,6 +17,7 @@ import { claimSignerFromKey, parseClaimFragment, signClaim } from "@/lib/fanout/
 import { NotFoundError } from "@/lib/fanout/client";
 import { useFanoutClient } from "@/lib/fanout/use-fanout-client";
 import { formatUsd, toCents } from "@/lib/money";
+import { usePayeeAccount } from "@/lib/payee/payee-account";
 import { ClaimScreen, type ClaimScreenState } from "./claim-screen";
 
 // The key lives in the URL fragment (#k=...), which browsers never send to a server.
@@ -50,7 +52,9 @@ function ClaimForKey({ privateKey }: { privateKey: Hex | null | undefined }) {
     retry: (count, err) => !(err instanceof NotFoundError) && count < 2,
   });
 
-  const recipient = user?.address;
+  // Where the money goes: the payee's passkey account (Mera), or their email account as a fallback.
+  const payee = usePayeeAccount();
+  const recipient = payee.address;
 
   const runClaim = useCallback(
     async (to: Address) => {
@@ -131,6 +135,11 @@ function ClaimForKey({ privateKey }: { privateKey: Hex | null | undefined }) {
   }
   if (phase !== "success" && claim.status === "refunded") {
     return <Notice title="This link has expired" body={`Ask ${platform} to send your ${amountLabel} again.`} />;
+  }
+
+  // Signed in, but no account on this device yet: set one up, then the effect above claims.
+  if (wantsClaim && authenticated && payee.kind === "none" && phase === "ready") {
+    return <AccountSetup mode="create" />;
   }
 
   const waitingForAccount = wantsClaim && authenticated && !recipient;

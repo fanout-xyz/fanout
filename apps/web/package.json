@@ -11,6 +11,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@category-labs/mera": "0.2.0",
     "@opentelemetry/api-logs": "^0.222.0",
     "@opentelemetry/exporter-logs-otlp-http": "^0.222.0",
     "@opentelemetry/resources": "^2.11.0",
@@ -18,6 +19,8 @@
     "@privy-io/node": "0.35.0",
     "@privy-io/react-auth": "3.45.0",
     "@privy-io/wagmi": "4.0.17",
+    "@scure/bip32": "1.7.0",
+    "@scure/bip39": "1.6.0",
     "@tanstack/react-query": "5.104.0",
     "class-variance-authority": "^0.7.1",
     "cn": "^0.4.0",
