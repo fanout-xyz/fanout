@@ -2,7 +2,8 @@
 
 import { PrivyProvider, useCreateWallet, usePrivy } from "@privy-io/react-auth";
 import { WagmiProvider, createConfig } from "@privy-io/wagmi";
-import { useEffect, useMemo, useRef, type ComponentProps, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, type ComponentProps, type ReactNode } from "react";
+import posthog from "posthog-js";
 import { getAddress } from "viem";
 import { http } from "wagmi";
 import { activeChain } from "@/lib/chains";
@@ -42,6 +43,31 @@ function PrivyBridge({ children }: { children: ReactNode }) {
     });
   }, [needsWallet, createWallet]);
 
+  const identifiedUserId = useRef<string | null>(null);
+  useEffect(() => {
+    if (!ready) return;
+
+    if (!authenticated || !user) {
+      if (identifiedUserId.current) {
+        posthog.reset();
+        identifiedUserId.current = null;
+      }
+      return;
+    }
+
+    if (identifiedUserId.current === user.id) return;
+    if (identifiedUserId.current) posthog.reset();
+
+    posthog.identify(user.id, user.email?.address ? { email: user.email.address } : {});
+    identifiedUserId.current = user.id;
+  }, [ready, authenticated, user]);
+
+  const handleLogout = useCallback(async () => {
+    posthog.reset();
+    identifiedUserId.current = null;
+    await logout();
+  }, [logout]);
+
   const value = useMemo<AuthContextValue>(
     () => ({
       provider: "privy",
@@ -54,10 +80,10 @@ function PrivyBridge({ children }: { children: ReactNode }) {
           }
         : null,
       login: () => login(),
-      logout,
+      logout: handleLogout,
       getAccessToken,
     }),
-    [ready, authenticated, user, login, logout, getAccessToken],
+    [ready, authenticated, user, login, handleLogout, getAccessToken],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

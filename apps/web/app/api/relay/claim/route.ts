@@ -1,4 +1,6 @@
-import { NextResponse } from "next/server";
+import { SeverityNumber } from "@opentelemetry/api-logs";
+import { after, NextResponse } from "next/server";
+import { emitPosthogLog, flushPosthogLogs } from "@/instrumentation";
 import { ClaimRefused, relayClaim } from "@/lib/fanout/relayer";
 import { NotFoundError } from "@/lib/fanout/types";
 
@@ -31,9 +33,19 @@ export async function POST(request: Request) {
       // The claimer's Privy session: the relayer checks their verified email before co-signing.
       accessToken: request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") || null,
     });
+    emitPosthogLog("Relayed claim completed", SeverityNumber.INFO, {
+      route: "/api/relay/claim",
+      topped_up: toppedUp,
+    });
+    after(flushPosthogLogs);
     return NextResponse.json({ txHash, amount: amount.toString(), toppedUp });
   } catch (err) {
     const notFound = err instanceof NotFoundError;
+    emitPosthogLog("Relayed claim rejected", SeverityNumber.WARN, {
+      route: "/api/relay/claim",
+      error_kind: notFound ? "not_found" : err instanceof ClaimRefused ? "refused" : "claim_failed",
+    });
+    after(flushPosthogLogs);
     const message = err instanceof Error ? err.message : "Something went wrong and nothing was claimed.";
     return NextResponse.json({ error: message, notFound }, { status: notFound ? 404 : err instanceof ClaimRefused ? 403 : 400 });
   }

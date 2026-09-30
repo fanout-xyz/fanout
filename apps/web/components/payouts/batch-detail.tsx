@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import posthog from "posthog-js";
 import { useMemo, useState, useSyncExternalStore } from "react";
 import { zeroHash } from "viem";
 import { StatusChip } from "@/components/status-chip";
@@ -118,6 +119,10 @@ export function BatchDetail({ id }: { id: string }) {
     const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
     const a = Object.assign(document.createElement("a"), { href: url, download: `fanout-payout-${id}.csv` });
     a.click();
+    posthog.capture("payout_csv_exported", {
+      recipient_count: rows.length,
+      includes_claim_links: includeLinks,
+    });
     // Revoke after the click has been handled; revoking synchronously can cancel the download.
     setTimeout(() => URL.revokeObjectURL(url), 0);
   }
@@ -258,7 +263,19 @@ export function BatchDetail({ id }: { id: string }) {
                   <Button variant="secondary">Keep them</Button>
                 </DialogClose>
                 <DialogClose asChild>
-                  <Button variant="destructive" onClick={() => expire.mutate()} disabled={expire.isPending}>
+                  <Button
+                    variant="destructive"
+                    onClick={() =>
+                      expire.mutate(undefined, {
+                        onSuccess: () =>
+                          posthog.capture("unclaimed_payouts_expired", {
+                            recipient_count: counts.sent,
+                            total_usd: Number(sum("sent")) / 1e6,
+                          }),
+                      })
+                    }
+                    disabled={expire.isPending}
+                  >
                     {expire.isPending ? <Spinner className="size-4" /> : null} Expire links
                   </Button>
                 </DialogClose>

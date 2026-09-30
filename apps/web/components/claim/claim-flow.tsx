@@ -3,6 +3,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useReducedMotion } from "motion/react";
 import Link from "next/link";
+import posthog from "posthog-js";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { Address, Hex } from "viem";
 import { PetalsMark } from "@/components/brand/petals-mark";
@@ -65,6 +66,10 @@ function ClaimForKey({ privateKey }: { privateKey: Hex | null | undefined }) {
         });
         await client.claim(claimSigner, to, signature);
         setPhase("success");
+        posthog.capture("claim_completed", {
+          amount_usd: Number(info.data?.amount ?? 0n) / 1e6,
+          demo_mode: config.useMock,
+        });
         // The key stays in the URL: once claimed it's spent (a second claim is refused), and
         // the page needs it to keep showing this payment.
         void queryClient.invalidateQueries({ queryKey: ["fanout"] });
