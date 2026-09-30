@@ -9,6 +9,9 @@ chains:
   - id: 10143
     # Treasury deploy block for monad-ausd (ignition/deployments/monad-ausd/journal.jsonl).
     start_block: 66791223
+    # Override with ENVIO_HYPERSYNC_URL, e.g. https://monad-testnet.hypersync.xyz if the chain-id host won't resolve.
+    hypersync_config:
+      url: ${ENVIO_HYPERSYNC_URL:-https://10143.hypersync.xyz}
     contracts:
       - name: Treasury
         address: "0x245C9b855fd63395BccEC46f7Bac2671e18e79fE"
