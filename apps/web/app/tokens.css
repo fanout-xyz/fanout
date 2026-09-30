@@ -21,7 +21,7 @@
   --color-tangerine: #FF6B3D;    /* accent only: highlights, illustrations, badges with ink text */
   --color-tangerine-700: #C2410C;/* only if tangerine must be used as text (light mode) */
   --color-mint: #C9F2DC;         /* brand mint; for surfaces use mint-surface */
-  --color-cobalt-on-dark: #7A94FF; /* cobalt for text/focus on always-dark bands (6.5:1 on #14142A) */
+  --color-cobalt-on-dark: #7A94FF; /* cobalt for text/focus on always-dark bands (6.0:1 on ink, 7.0:1 on the dark band) */
 
   /* Type */
   --font-display: var(--font-bricolage), ui-sans-serif, system-ui, sans-serif;
@@ -90,31 +90,32 @@
   color-scheme: light;
 }
 
-/* Dark: warm deep navy, never pure black. Contrast ratios are against --bg. */
+/* Dark: warm charcoal that matches the cream brand, never pure black and never navy.
+   Cobalt stays for actions only. Contrast ratios are against --bg unless noted. */
 :root[data-theme="dark"] {
-  --bg: #14142A;
-  --fg: #F4EEE4;                   /* 15.6:1 */
-  --card: #1F1F38;                 /* cards, inputs, phone screen */
-  --card-raised: #282845;          /* menus, dialogs, hover rows */
-  --border: #2E2E4A;
-  --muted: #A9A399;                /* 7.2:1 */
-  --primary: #7A94FF;              /* links, focus rings, accents (6.5:1) */
-  --primary-fg: #14142A;
+  --bg: #131211;
+  --fg: #F4EEE4;                   /* 16.2:1 */
+  --card: #1D1B18;                 /* cards, inputs, phone screen (fg 15.0:1) */
+  --card-raised: #272420;          /* menus, dialogs, hover rows (fg 13.4:1) */
+  --border: #34302B;
+  --muted: #A8A196;                /* 7.3:1; 6.1:1 on card-raised */
+  --primary: #8098FF;              /* links, focus rings, accents (7.0:1) */
+  --primary-fg: #131211;
   --primary-solid: #3355FF;        /* keep brand cobalt for buttons; cream text 5.1:1 */
-  --primary-solid-hover: #2A49E6; /* cream text 6.1:1 (#4466FF was 4.27:1) */
+  --primary-solid-hover: #2A49E6; /* cream text 6.1:1 */
   --primary-solid-fg: #FFF6EA;
-  --success: #4CC99A;              /* 8.7:1 */
-  --warning: #F0A94B;              /* 9.0:1 */
-  --danger: #FF7A66;               /* 7.1:1 */
-  --tangerine-text: #FF6B3D;       /* may be used as text in dark (6.4:1), sparingly */
-  --mint-surface: #0F3B2E;
-  --on-mint: #C9F2DC;              /* 10.2:1 on mint-surface */
-  --on-tangerine: #14142A;
-  --refunded-fg: #FFB59C;
-  --band-dark: #0E0E20;
-  --band-dark-border: #2E2E4A;
-  --track: #1F1F38;
-  --bezel: #2E2E4A;
+  --success: #4CC99A;              /* 9.0:1 */
+  --warning: #F0A94B;              /* 9.3:1 */
+  --danger: #FF7A66;               /* 7.3:1 */
+  --tangerine-text: #FF6B3D;       /* may be used as text in dark (6.6:1), sparingly */
+  --mint-surface: #10342A;
+  --on-mint: #C9F2DC;              /* 11.1:1 on mint-surface */
+  --on-tangerine: #131211;
+  --refunded-fg: #FFB59C;          /* 11.0:1 */
+  --band-dark: #0C0B0A;
+  --band-dark-border: #34302B;
+  --track: #1D1B18;
+  --bezel: #34302B;
   --on-mint-icon: #C9F2DC;
   --float-shadow: none;            /* layers separate with border + card-raised instead */
   --coin-glow: 0 0 24px rgb(51 85 255 / 0.25);
