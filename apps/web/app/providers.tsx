@@ -7,6 +7,7 @@ import { ThemeColorSync } from "@/components/theme-color-sync";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "@/lib/auth/provider";
+import { PayeeAccountProvider } from "@/lib/payee/payee-account";
 
 export function Providers({ children }: { children: ReactNode }) {
   const [queryClient] = useState(
@@ -20,7 +21,9 @@ export function Providers({ children }: { children: ReactNode }) {
       <ThemeColorSync />
       <QueryClientProvider client={queryClient}>
         <TooltipProvider delayDuration={300}>
-          <AuthProvider>{children}</AuthProvider>
+          <AuthProvider>
+            <PayeeAccountProvider>{children}</PayeeAccountProvider>
+          </AuthProvider>
         </TooltipProvider>
         <Toaster richColors position="top-center" />
       </QueryClientProvider>

@@ -5,11 +5,14 @@ import { PetalsMark } from "@/components/brand/petals-mark";
 import { Spinner } from "@/components/tx-progress";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { AccountSetup } from "@/components/payee/account-setup";
 import { useAuth } from "@/lib/auth/provider";
+import { usePayeeAccount } from "@/lib/payee/payee-account";
 
 /** Payee pages: show children only once signed in with an account ready. */
 export function PayeeAuthGate({ children }: { children: ReactNode }) {
-  const { ready, authenticated, user, login } = useAuth();
+  const { ready, authenticated, login } = useAuth();
+  const payee = usePayeeAccount();
 
   if (!ready) {
     return (
@@ -31,7 +34,9 @@ export function PayeeAuthGate({ children }: { children: ReactNode }) {
       </div>
     );
   }
-  if (!user?.address) {
+  // Signed in on a device that hasn't opened this payee's account yet.
+  if (payee.kind === "none") return <AccountSetup mode="open" />;
+  if (!payee.address) {
     return (
       <p className="flex items-center justify-center gap-2 px-5 pt-10 text-muted" role="status">
         <Spinner className="size-4" /> Setting up your account…

@@ -7,7 +7,7 @@ import { Spinner } from "@/components/tx-progress";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useAuth } from "@/lib/auth/provider";
+import { usePayeeAccount } from "@/lib/payee/payee-account";
 import { useSend } from "@/lib/fanout/queries";
 import { formatUsd } from "@/lib/money";
 import { checkSend, shortAddress } from "@/lib/send-validation";
@@ -16,7 +16,7 @@ type Step = { kind: "form" } | { kind: "review"; amount: bigint; to: `0x${string
 
 /** Send dollars to an address. The address is the one thing shown as typed (guidelines §8). */
 export function SendFlow({ balance, onClose }: { balance: bigint; onClose: () => void }) {
-  const self = useAuth().user?.address;
+  const self = usePayeeAccount().address;
   const send = useSend();
   const [amount, setAmount] = useState("");
   const [to, setTo] = useState("");
