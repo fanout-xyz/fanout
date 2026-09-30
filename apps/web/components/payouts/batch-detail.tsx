@@ -211,6 +211,9 @@ export function BatchDetail({ id }: { id: string }) {
                     <td className="h-13 px-6 text-muted tabular-nums">{r.n}</td>
                     <td className="max-w-[18rem] truncate px-6" title={r.claim?.email}>
                       {r.claim?.email ?? <span className="text-muted">Person {r.n}</span>}
+                      {r.claim && r.status === "sent" && (
+                        <span className="block text-xs text-muted">{r.claim.emailedAt ? "Link emailed" : "Not emailed yet"}</span>
+                      )}
                     </td>
                     <td className="px-6 text-right font-bold tabular-nums">{formatUsd(r.amount)}</td>
                     <td className="max-w-[12rem] truncate px-6 text-muted" title={r.claim?.note}>

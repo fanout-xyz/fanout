@@ -21,6 +21,8 @@ export type StoredClaim = {
   privateKey: Hex;
   email: string;
   note: string;
+  /** When the link was last emailed to the payee (unix ms). Missing = never emailed. */
+  emailedAt?: number;
 };
 
 type ClaimMap = Record<string, StoredClaim>; // lowercased claimSigner -> claim
@@ -65,6 +67,22 @@ export function saveClaims(claims: StoredClaim[]): boolean {
     return true;
   } catch {
     return false;
+  }
+}
+
+/** Records that these links were emailed. Best effort: a storage failure only loses the timestamp. */
+export function markEmailed(claimSigners: string[], at = Date.now()): void {
+  const map = { ...readMap() };
+  for (const s of claimSigners) {
+    const c = map[s.toLowerCase()];
+    if (c) map[s.toLowerCase()] = { ...c, emailedAt: at };
+  }
+  try {
+    const raw = JSON.stringify(map);
+    window.localStorage.setItem(KEY, raw);
+    cache = { raw, map };
+  } catch {
+    // Ignore: the emails went out either way.
   }
 }
 

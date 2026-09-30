@@ -69,14 +69,28 @@ export function NewPayoutFlow() {
     createPayout.mutate(
       sheet.rows.map((r) => ({ email: r.email, amount: r.amount!, note: r.note })),
       {
-        onSuccess: ({ batchId }) => {
+        onSuccess: ({ batchId, emailed }) => {
           setStage("done");
+          const emailedCount = "sent" in emailed ? emailed.sent.length : 0;
           posthog.capture("payout_created", {
             recipient_count: people,
             total_usd: Number(sheet.total) / 1e6,
             demo_mode: config.useMock,
+            emailed_count: emailedCount,
           });
-          toast.success(`Paid ${people} ${people === 1 ? "person" : "people"}`);
+          const paid = `Paid ${people} ${people === 1 ? "person" : "people"}`;
+          if (emailedCount === people) {
+            toast.success(`${paid}. Everyone has an email with their link.`);
+          } else {
+            toast.success(paid);
+            const why = "error" in emailed ? emailed.error : emailed.failed[0]?.reason;
+            toast.warning(
+              emailedCount === 0
+                ? "No links were emailed. Copy them from the payout page."
+                : `Emailed ${emailedCount} of ${people} links. Copy the rest from the payout page.`,
+              { description: why, duration: 10_000 },
+            );
+          }
           router.push(`/dashboard/payouts/${batchId}`);
         },
         onError: () => setStage(null),

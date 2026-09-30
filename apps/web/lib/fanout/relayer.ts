@@ -1,10 +1,9 @@
 import "server-only";
-import { PrivyClient } from "@privy-io/node";
 import { createPublicClient, createWalletClient, http, isAddress, isHex, parseEther, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { activeChain } from "@/lib/chains";
+import { privyClient, SessionExpired, verifiedUser } from "@/lib/auth/privy-server";
 import { config } from "@/lib/config";
-import { hashEmail } from "@/lib/email-hash";
 import { claimEscrowAbi } from "./abis";
 import { recoverClaimSigner, signVerification } from "./claim-keys";
 import { ALL_CONTRACT_ERRORS, friendlyChainError, need } from "./onchain-client";
@@ -49,25 +48,6 @@ export function relayerConfigured(): boolean {
   return relayerAccount() !== null && serverKey("VERIFIER_PRIVATE_KEY") !== null && !!process.env.PRIVY_APP_SECRET;
 }
 
-let privy: PrivyClient | null = null;
-function privyClient(): PrivyClient | null {
-  const appSecret = process.env.PRIVY_APP_SECRET;
-  if (!config.privyAppId || !appSecret) return null;
-  return (privy ??= new PrivyClient({ appId: config.privyAppId, appSecret }));
-}
-
-/** Hashes of the emails Privy has verified for the signed-in user. */
-async function verifiedEmailHashes(client: PrivyClient, accessToken: string): Promise<Set<Hex>> {
-  let userId: string;
-  try {
-    ({ user_id: userId } = await client.utils().auth().verifyAccessToken(accessToken));
-  } catch {
-    throw new ClaimRefused("Your session has expired. Sign in again to claim.");
-  }
-  const user = await client.users()._get(userId);
-  return new Set(user.linked_accounts.flatMap((a) => (a.type === "email" && a.verified_at ? [hashEmail(a.address)] : [])));
-}
-
 export async function relayClaim(input: {
   claimSigner: unknown;
   recipient: unknown;
@@ -108,8 +88,10 @@ export async function relayClaim(input: {
     const linkSigner = await recoverClaimSigner(message, signature as Hex).catch(() => null);
     if (linkSigner?.toLowerCase() !== claimSigner.toLowerCase()) throw new NotFoundError("This payment link isn't valid.");
 
-    const emails = await verifiedEmailHashes(privyApi, accessToken);
-    if (!emails.has(emailHash)) {
+    const { emailHashes } = await verifiedUser(privyApi, accessToken).catch((err) => {
+      throw err instanceof SessionExpired ? new ClaimRefused("Your session has expired. Sign in again to claim.") : err;
+    });
+    if (!emailHashes.has(emailHash)) {
       throw new ClaimRefused("This payment was sent to a different email. Sign in with the email address it was sent to.");
     }
     const verification = await signVerification(verifierKey, { ...message, claimSigner: claimSigner as Address });
