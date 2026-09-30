@@ -21,6 +21,8 @@ export type StoredClaim = {
   privateKey: Hex;
   email: string;
   note: string;
+  /** When the link was last emailed to the payee (unix ms). Missing = never emailed. */
+  emailedAt?: number;
 };
 
 type ClaimMap = Record<string, StoredClaim>; // lowercased claimSigner -> claim
@@ -29,6 +31,14 @@ const KEY = "fanout.claims.v2";
 const LEGACY_PREFIX = "fanout.claims.v1."; // per-batch arrays from earlier builds
 
 let cache: { raw: string | null; map: ClaimMap } | null = null;
+const listeners = new Set<() => void>();
+const notify = () => listeners.forEach((l) => l());
+
+/** For useSyncExternalStore: fires after this tab saves or updates claims. */
+export function subscribeClaims(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
 
 function readMap(): ClaimMap {
   let raw: string | null = null;
@@ -62,10 +72,29 @@ export function saveClaims(claims: StoredClaim[]): boolean {
     const raw = JSON.stringify(map);
     window.localStorage.setItem(KEY, raw);
     cache = { raw, map };
+    notify();
     return true;
   } catch {
     return false;
   }
+}
+
+/** Records that these links were emailed. Best effort: a storage failure only loses the timestamp. */
+export function markEmailed(claimSigners: string[], at = Date.now()): void {
+  const map = { ...readMap() };
+  for (const s of claimSigners) {
+    const c = map[s.toLowerCase()];
+    if (c) map[s.toLowerCase()] = { ...c, emailedAt: at };
+  }
+  try {
+    const raw = JSON.stringify(map);
+    window.localStorage.setItem(KEY, raw);
+    cache = { raw, map };
+  } catch {
+    // Storage failed: keep the timestamps for this session so the page still shows them.
+    cache = { raw: cache?.raw ?? null, map };
+  }
+  notify();
 }
 
 /** All claims this browser knows about. Stable object between saves (safe for useSyncExternalStore). */

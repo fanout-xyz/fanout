@@ -3,8 +3,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth/provider";
 import { hashEmail } from "@/lib/email-hash";
+import { emailClaimLinks } from "./claim-email-client";
 import { generateClaimKey } from "./claim-keys";
-import { saveClaims } from "./claim-link-store";
+import { saveClaims, type StoredClaim } from "./claim-link-store";
 import { mockRefundUnclaimed } from "./mock-client";
 import { NotFoundError } from "./types";
 import { config } from "@/lib/config";
@@ -81,7 +82,8 @@ export type NewPayoutRow = { email: string; amount: bigint; note: string };
  */
 export function useCreatePayout() {
   const client = useFanoutClient();
-  const address = useAuth().user?.address;
+  const auth = useAuth();
+  const address = auth.user?.address;
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (rows: NewPayoutRow[]) => {
@@ -92,13 +94,35 @@ export function useCreatePayout() {
       if (!saved) {
         throw new Error("Couldn't save the claim links in this browser, so nothing was sent. Allow site storage and try again.");
       }
-      return client.createBatchPayout(
+      const created = await client.createBatchPayout(
         keyed.map(({ row, key }) => ({ claimSigner: key.claimSigner, amount: row.amount, emailHash: hashEmail(row.email) })),
       );
+      // The money is out; emailing is a separate step whose failure the caller reports, not throws.
+      const emailed = await emailClaimLinks(
+        keyed.map(({ row, key }) => ({ key: key.privateKey, claimSigner: key.claimSigner, email: row.email, note: row.note })),
+        { accessToken: (await auth.getAccessToken?.()) ?? null, account: address },
+      );
+      return { ...created, emailed };
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: fanoutKeys.treasury(address) });
       void queryClient.invalidateQueries({ queryKey: fanoutKeys.batches(address) });
+    },
+  });
+}
+
+/** Emails (or re-emails) claim links. Resolves with what was sent; the caller shows failures. */
+export function useEmailClaimLinks() {
+  const auth = useAuth();
+  return useMutation({
+    mutationFn: async ({ claims, reminder }: { claims: StoredClaim[]; reminder?: boolean }) => {
+      const result = await emailClaimLinks(
+        claims.map((c) => ({ key: c.privateKey, claimSigner: c.claimSigner, email: c.email, note: c.note })),
+        { accessToken: (await auth.getAccessToken?.()) ?? null, account: auth.user?.address },
+        { reminder },
+      );
+      if ("error" in result) throw new Error(result.error);
+      return result;
     },
   });
 }
