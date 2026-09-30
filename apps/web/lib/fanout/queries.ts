@@ -1,7 +1,10 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { createWalletClient, http } from "viem";
 import { useAuth } from "@/lib/auth/provider";
+import { activeChain } from "@/lib/chains";
+import { usePayeeAccount } from "@/lib/payee/payee-account";
 import { hashEmail } from "@/lib/email-hash";
 import { emailClaimLinks } from "./claim-email-client";
 import { generateClaimKey } from "./claim-keys";
@@ -11,6 +14,7 @@ import { NotFoundError } from "./types";
 import { config } from "@/lib/config";
 import { erc20Abi } from "./abis";
 import { need, reader } from "./onchain-client";
+import { createFanoutClient } from "./client";
 import { useFanoutClient } from "./use-fanout-client";
 
 /** Query keys, scoped by address so switching accounts never shows stale data. */
@@ -155,7 +159,7 @@ export function useMockExpireUnclaimed(batchId: string) {
 
 export function usePayeeBalance() {
   const client = useFanoutClient();
-  const address = useAuth().user?.address;
+  const address = usePayeeAccount().address;
   return useQuery({
     queryKey: fanoutKeys.payeeBalance(address),
     queryFn: () => client.getPayeeBalance(address!),
@@ -165,7 +169,7 @@ export function usePayeeBalance() {
 
 export function usePayeeHistory() {
   const client = useFanoutClient();
-  const address = useAuth().user?.address;
+  const address = usePayeeAccount().address;
   return useQuery({
     queryKey: fanoutKeys.payeeHistory(address),
     queryFn: () => client.getPayeeHistory(address!),
@@ -173,12 +177,26 @@ export function usePayeeHistory() {
   });
 }
 
+/**
+ * Sends from the payee's account. A passkey account is opened for this one send (Face ID / Touch
+ * ID) and its key is zeroed right after; the email-account fallback signs with the sign-in wallet.
+ */
 export function useSend() {
-  const client = useFanoutClient();
-  const address = useAuth().user?.address;
+  const signInClient = useFanoutClient();
+  const payee = usePayeeAccount();
+  const address = payee.address;
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ to, amount }: { to: `0x${string}`; amount: bigint }) => client.send(to, amount),
+    mutationFn: async ({ to, amount }: { to: `0x${string}`; amount: bigint }) => {
+      if (payee.kind !== "passkey") return signInClient.send(to, amount);
+      const unlocked = await payee.unlock();
+      try {
+        const walletClient = createWalletClient({ account: unlocked.account, chain: activeChain, transport: http() });
+        return await createFanoutClient({ account: unlocked.address, walletClient }).send(to, amount);
+      } finally {
+        unlocked.end();
+      }
+    },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: fanoutKeys.payeeBalance(address) });
       void queryClient.invalidateQueries({ queryKey: fanoutKeys.payeeHistory(address) });
