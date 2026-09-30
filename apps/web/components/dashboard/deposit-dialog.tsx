@@ -1,5 +1,6 @@
 "use client";
 
+import posthog from "posthog-js";
 import { useEffect, useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import { TxProgress, Spinner, type TxStage } from "@/components/tx-progress";
@@ -62,6 +63,10 @@ export function DepositDialog() {
     deposit.mutate(amount, {
       onSuccess: ({ txHash }) => {
         setPhase({ kind: "tx", stage: "done", amount, txHash });
+        posthog.capture("deposit_completed", {
+          amount_usd: Number(amount) / 1e6,
+          demo_mode: config.useMock,
+        });
         toast.success(`${formatUsd(amount)} added to your payout balance`);
       },
       onError: () => setPhase({ kind: "form" }),

@@ -1,5 +1,7 @@
-import { NextResponse } from "next/server";
+import { SeverityNumber } from "@opentelemetry/api-logs";
+import { after, NextResponse } from "next/server";
 import type { Address } from "viem";
+import { emitPosthogLog, flushPosthogLogs } from "@/instrumentation";
 import { config } from "@/lib/config";
 import { engine, MUTATING, type EngineMethod } from "@/lib/fanout/mock-engine";
 import { getMockState, saveMockState } from "@/lib/fanout/mock-store";
@@ -39,11 +41,24 @@ export async function POST(request: Request) {
   try {
     const args = WITH_ACCOUNT.has(body.method) ? [state, body.account, ...body.args] : [state, ...body.args];
     const result = await fn(...args);
-    if (MUTATING.has(body.method)) saveMockState();
+    if (MUTATING.has(body.method)) {
+      saveMockState();
+      emitPosthogLog("Mock payout operation completed", SeverityNumber.INFO, {
+        route: "/api/mock",
+        operation_type: "mutation",
+      });
+      after(flushPosthogLogs);
+    }
     return new NextResponse(toWire({ result }), { headers: { "content-type": "application/json" } });
   } catch (err) {
+    const notFound = err instanceof NotFoundError;
+    emitPosthogLog("Mock payout operation rejected", SeverityNumber.WARN, {
+      route: "/api/mock",
+      error_kind: notFound ? "not_found" : "operation_failed",
+    });
+    after(flushPosthogLogs);
     const message = err instanceof Error ? err.message : "Something went wrong.";
-    return new NextResponse(toWire({ error: message, notFound: err instanceof NotFoundError }), {
+    return new NextResponse(toWire({ error: message, notFound }), {
       status: err instanceof NotFoundError ? 404 : 400,
       headers: { "content-type": "application/json" },
     });

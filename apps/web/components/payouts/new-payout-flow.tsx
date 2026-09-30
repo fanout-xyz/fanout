@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import posthog from "posthog-js";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { DepositDialog } from "@/components/dashboard/deposit-dialog";
@@ -49,10 +50,16 @@ export function NewPayoutFlow() {
   }, [stage]);
 
   function load(text: string, fileName: string) {
+    const parsedSheet = parsePayoutCsv(text);
     setLoadError(null);
     setScreened(false);
     createPayout.reset();
-    setLoaded({ sheet: parsePayoutCsv(text), fileName });
+    setLoaded({ sheet: parsedSheet, fileName });
+    posthog.capture("payout_csv_loaded", {
+      recipient_count: parsedSheet.rows.length,
+      invalid_row_count: parsedSheet.errorRowCount,
+      has_file_errors: parsedSheet.fileErrors.length > 0,
+    });
   }
 
   function approve() {
@@ -64,6 +71,11 @@ export function NewPayoutFlow() {
       {
         onSuccess: ({ batchId }) => {
           setStage("done");
+          posthog.capture("payout_created", {
+            recipient_count: people,
+            total_usd: Number(sheet.total) / 1e6,
+            demo_mode: config.useMock,
+          });
           toast.success(`Paid ${people} ${people === 1 ? "person" : "people"}`);
           router.push(`/dashboard/payouts/${batchId}`);
         },

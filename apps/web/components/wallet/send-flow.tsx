@@ -1,5 +1,6 @@
 "use client";
 
+import posthog from "posthog-js";
 import { useState, type FormEvent } from "react";
 import { PetalsMark } from "@/components/brand/petals-mark";
 import { Spinner } from "@/components/tx-progress";
@@ -33,7 +34,14 @@ export function SendFlow({ balance, onClose }: { balance: bigint; onClose: () =>
 
   function confirm() {
     if (step.kind !== "review") return;
-    send.mutate({ to: step.to, amount: step.amount }, { onSuccess: () => setStep({ ...step, kind: "sent" }) });
+    send.mutate({ to: step.to, amount: step.amount }, {
+      onSuccess: () => {
+        setStep({ ...step, kind: "sent" });
+        posthog.capture("wallet_transfer_completed", {
+          amount_usd: Number(step.amount) / 1e6,
+        });
+      },
+    });
   }
 
   if (step.kind === "sent") {

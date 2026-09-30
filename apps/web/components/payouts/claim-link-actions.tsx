@@ -1,6 +1,7 @@
 "use client";
 
 import { QRCodeSVG } from "qrcode.react";
+import posthog from "posthog-js";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -18,6 +19,7 @@ export function ClaimLinkActions({ link, email, amount }: Props) {
     try {
       await navigator.clipboard.writeText(link);
       setCopied(true);
+      posthog.capture("claim_link_copied");
       setTimeout(() => setCopied(false), 1500);
     } catch {
       toast.error("Couldn't copy. Select the link in the QR view and copy it by hand.");
@@ -41,7 +43,7 @@ export function ClaimLinkActions({ link, email, amount }: Props) {
             <DialogDescription>Scan to open the claim page. Anyone with this link can claim the money, so share it only with {email}.</DialogDescription>
           </DialogHeader>
           {/* QR stays dark-on-white in both themes so every phone camera can read it. */}
-          <div className="mx-auto rounded-md bg-white p-4">
+          <div className="ph-no-capture mx-auto rounded-md bg-white p-4">
             <QRCodeSVG value={link} size={224} level="M" marginSize={0} title={`Claim link for ${email}`} />
           </div>
           {isLocalOrigin(link) && (
@@ -55,7 +57,7 @@ export function ClaimLinkActions({ link, email, amount }: Props) {
             value={link}
             aria-label="Claim link"
             onFocus={(e) => e.currentTarget.select()}
-            className="h-10 w-full rounded-sm border border-line bg-card-raised px-3 font-mono text-xs text-muted"
+            className="ph-no-capture h-10 w-full rounded-sm border border-line bg-card-raised px-3 font-mono text-xs text-muted"
           />
         </DialogContent>
       </Dialog>

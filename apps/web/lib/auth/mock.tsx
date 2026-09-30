@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useMemo, useState, useSyncExternalStore, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type FormEvent, type ReactNode } from "react";
+import posthog from "posthog-js";
 import { keccak256, toBytes, type Address } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { createConfig, http, WagmiProvider } from "wagmi";
@@ -76,10 +77,36 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
   const ready = session !== undefined;
   const email = session ?? null;
   const [open, setOpen] = useState(false);
+  const identifiedAddress = useRef<Address | null>(null);
+
+  useEffect(() => {
+    if (!ready) return;
+
+    if (!email) {
+      if (identifiedAddress.current) {
+        posthog.reset();
+        identifiedAddress.current = null;
+      }
+      return;
+    }
+
+    const address = addressForEmail(email);
+    if (identifiedAddress.current === address) return;
+    if (identifiedAddress.current) posthog.reset();
+
+    posthog.identify(address, { email });
+    identifiedAddress.current = address;
+  }, [ready, email]);
 
   const signIn = useCallback((value: string) => {
     sessionStore.set(value);
     setOpen(false);
+  }, []);
+
+  const logout = useCallback(async () => {
+    posthog.reset();
+    identifiedAddress.current = null;
+    sessionStore.set(null);
   }, []);
 
   const value = useMemo<AuthContextValue>(
@@ -89,9 +116,9 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
       authenticated: !!email,
       user: email ? { email, address: addressForEmail(email) } : null,
       login: () => setOpen(true),
-      logout: async () => sessionStore.set(null),
+      logout,
     }),
-    [ready, email],
+    [ready, email, logout],
   );
 
   return (
