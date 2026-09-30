@@ -1,0 +1,105 @@
+# Ids are checksummed addresses (Platform, Claim, Payee) or batch ids (Batch).
+# Times are unix seconds; amounts are raw AUSD units (6 decimals).
+
+enum ClaimStatus {
+  Sent
+  Claimed
+  Refunded
+}
+
+enum PlatformActivityKind {
+  Deposit
+  Withdraw
+  Payout
+  Refund
+}
+
+enum PayeeActivityKind {
+  Received
+  Sent
+}
+
+"A wallet that deposits into Treasury and creates payouts."
+type Platform {
+  id: ID!
+  "Mirrors Treasury.balanceOf: deposits + refunds - withdrawals - payouts."
+  balance: BigInt!
+  totalDeposited: BigInt!
+  totalWithdrawn: BigInt!
+  totalPaidOut: BigInt!
+  totalClaimed: BigInt!
+  totalRefunded: BigInt!
+  batchCount: Int!
+  "Payout rows across all batches."
+  claimCount: Int!
+  claimedCount: Int!
+  batches: [Batch!]! @derivedFrom(field: "platform")
+  activity: [PlatformActivity!]! @derivedFrom(field: "platform")
+}
+
+"One CSV payout: BatchPayout.createBatch."
+type Batch @index(fields: ["platform", ["createdAt", "DESC"]]) {
+  id: ID!
+  platform: Platform!
+  total: BigInt!
+  rowCount: Int!
+  claimedCount: Int!
+  claimedAmount: BigInt!
+  refundedCount: Int!
+  refundedAmount: BigInt!
+  createdAt: Int!
+  txHash: String!
+  claims: [Claim!]! @derivedFrom(field: "batch")
+}
+
+"One payout row, keyed by its claim signer (the public half of the claim link)."
+type Claim {
+  id: ID!
+  batch: Batch!
+  platform: Platform!
+  amount: BigInt!
+  expiresAt: Int!
+  status: ClaimStatus!
+  "Set once claimed."
+  recipient: String @index
+  openedAt: Int!
+  openedTxHash: String!
+  "When and where it was claimed or refunded."
+  settledAt: Int
+  settledTxHash: String
+}
+
+"Dashboard ledger: every movement of a platform's balance, with its transaction."
+type PlatformActivity @index(fields: ["platform", ["timestamp", "DESC"]]) {
+  id: ID!
+  platform: Platform!
+  kind: PlatformActivityKind!
+  amount: BigInt!
+  "Payout and Refund rows point at their batch."
+  batch: Batch
+  txHash: String!
+  timestamp: Int!
+}
+
+"A wallet that has claimed at least one payout."
+type Payee {
+  id: ID!
+  totalReceived: BigInt!
+  totalSent: BigInt!
+  claimCount: Int!
+  activity: [PayeeActivity!]! @derivedFrom(field: "payee")
+}
+
+"Wallet page history: claims received, plus AUSD sent or received after the first claim."
+type PayeeActivity @index(fields: ["payee", ["timestamp", "DESC"]]) {
+  id: ID!
+  payee: Payee!
+  kind: PayeeActivityKind!
+  amount: BigInt!
+  "The paying platform for a claim; otherwise the other side of the transfer."
+  counterparty: String!
+  "Set when this row is a claim."
+  claim: Claim
+  txHash: String!
+  timestamp: Int!
+}

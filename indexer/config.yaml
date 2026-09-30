@@ -1,0 +1,34 @@
+# yaml-language-server: $schema=./node_modules/envio/evm.schema.json
+name: fanout-indexer
+description: Fanout payouts on Monad testnet (monad-ausd deployment, see smart-contract/README.md)
+disable_default_cross_chain: true
+# Every activity row needs its time and its transaction, for the explorer link.
+field_selection:
+  transaction_fields: [hash]
+chains:
+  - id: 10143
+    # Treasury deploy block for monad-ausd (ignition/deployments/monad-ausd/journal.jsonl).
+    start_block: 66791223
+    contracts:
+      - name: Treasury
+        address: "0x245C9b855fd63395BccEC46f7Bac2671e18e79fE"
+        events:
+          - event: Deposited(address indexed platform, uint256 amount)
+          - event: Withdrawn(address indexed platform, uint256 amount)
+          - event: Debited(address indexed platform, uint256 amount)
+          - event: Credited(address indexed platform, uint256 amount)
+      - name: BatchPayout
+        address: "0xfc15b4f0811C6F88e8D572cFB01fCE5b166FE3dF"
+        events:
+          - event: BatchCreated(uint256 indexed batchId, address indexed platform, uint256 total, uint256 count)
+      - name: ClaimEscrow
+        address: "0xf1de07BFfAF3D3D4279399D63049F0C01b8aFD11"
+        events:
+          - event: ClaimOpened(address indexed claimSigner, address indexed platform, uint256 indexed batchId, uint256 amount, uint64 expiresAt)
+          - event: Claimed(address indexed claimSigner, address indexed recipient, uint256 amount)
+          - event: Refunded(address indexed claimSigner, address indexed platform, uint256 amount)
+      # Agora AUSD. Only transfers to or from a known payee are kept, for the wallet page's history.
+      - name: AUSD
+        address: "0xa9012a055bd4e0eDfF8Ce09f960291C09D5322dC"
+        events:
+          - event: Transfer(address indexed from, address indexed to, uint256 value)
