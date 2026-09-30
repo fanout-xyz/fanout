@@ -24,4 +24,10 @@ describe("claimEmail", () => {
     expect(cleanNote("Claim here: https://evil.example")).toBeUndefined();
     expect(cleanNote("  September\n payout ")).toBe("September payout");
   });
+
+  it("marks reminders in the subject and body", () => {
+    const { subject, text } = claimEmail({ platformName: "Acme", amount: 50_000_000n, link, reminder: true });
+    expect(subject).toBe("Reminder: Acme sent you $50.00");
+    expect(text).toContain("still waiting for you");
+  });
 });

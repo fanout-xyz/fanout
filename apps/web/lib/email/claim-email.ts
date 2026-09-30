@@ -12,6 +12,8 @@ export type ClaimEmailInput = {
   note?: string;
   /** When unclaimed money goes back to the platform, unix seconds. */
   expiresAt?: number;
+  /** A follow-up for someone who hasn't claimed yet. */
+  reminder?: boolean;
 };
 
 const escapeHtml = (s: string) =>
@@ -29,14 +31,14 @@ function formatDate(unixSeconds: number): string {
   return new Date(unixSeconds * 1000).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" });
 }
 
-export function claimEmail({ platformName, amount, link, note, expiresAt }: ClaimEmailInput) {
+export function claimEmail({ platformName, amount, link, note, expiresAt, reminder }: ClaimEmailInput) {
   const usd = formatUsd(amount);
   const safeNote = cleanNote(note);
   const by = expiresAt ? formatDate(expiresAt) : null;
-  const subject = `${platformName} sent you ${usd}`;
+  const subject = `${reminder ? "Reminder: " : ""}${platformName} sent you ${usd}`;
 
   const text = [
-    `${platformName} sent you ${usd}.`,
+    reminder ? `${platformName} sent you ${usd}, and it's still waiting for you.` : `${platformName} sent you ${usd}.`,
     safeNote ? `Note: ${safeNote}` : null,
     "",
     "Get your money here:",
@@ -61,6 +63,7 @@ export function claimEmail({ platformName, amount, link, note, expiresAt }: Clai
 <tr><td>
 ${p(`${escapeHtml(platformName)} sent you`, "color:#5A5A70;margin-bottom:4px;")}
 <p style="margin:0 0 24px;font-size:40px;line-height:48px;font-weight:700;color:#14142A;">${escapeHtml(usd)}</p>
+${reminder ? p("It's still waiting for you.", "color:#5A5A70;") : ""}
 ${safeNote ? p(escapeHtml(safeNote), "color:#5A5A70;") : ""}
 <table role="presentation" cellpadding="0" cellspacing="0" style="margin:8px 0 24px;"><tr><td style="border-radius:999px;background:#3355FF;">
 <a href="${escapeHtml(link)}" style="display:inline-block;padding:14px 28px;font-size:16px;font-weight:600;color:#FFFFFF;text-decoration:none;">Get your money</a>

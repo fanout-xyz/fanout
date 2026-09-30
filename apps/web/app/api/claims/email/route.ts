@@ -12,7 +12,7 @@ function limited(ip: string, max = 5, windowMs = 60_000) {
   return recent.length > max;
 }
 
-/** POST { links: [{ key, email, note? }], account? } -> { sent: Address[], failed: [{ claimSigner, reason }] } */
+/** POST { links: [{ key, email, note? }], reminder?, account? } -> { sent: Address[], failed: [{ claimSigner, reason }] } */
 export async function POST(request: Request) {
   const ip = (request.headers.get("x-forwarded-for") ?? "").split(",")[0].trim() || "unknown";
   if (limited(ip)) return NextResponse.json({ error: "Too many tries. Wait a minute and try again." }, { status: 429 });
@@ -29,6 +29,7 @@ export async function POST(request: Request) {
       requests: parseRequests(body),
       accessToken: request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") || null,
       mockAccount: body.account,
+      reminder: body.reminder === true,
     });
     return NextResponse.json(result);
   } catch (err) {

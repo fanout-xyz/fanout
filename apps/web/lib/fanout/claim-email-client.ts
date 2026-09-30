@@ -12,12 +12,13 @@ export type EmailLinksResult = { sent: Address[]; failed: { claimSigner: Address
 export async function emailClaimLinks(
   links: { key: Hex; email: string; note?: string; claimSigner: Address }[],
   auth: { accessToken?: string | null; account?: Address },
+  opts: { reminder?: boolean } = {},
 ): Promise<EmailLinksResult | { error: string }> {
   try {
     const res = await fetch("/api/claims/email", {
       method: "POST",
       headers: { "content-type": "application/json", ...(auth.accessToken ? { authorization: `Bearer ${auth.accessToken}` } : {}) },
-      body: JSON.stringify({ links: links.map(({ key, email, note }) => ({ key, email, note })), account: auth.account }),
+      body: JSON.stringify({ links: links.map(({ key, email, note }) => ({ key, email, note })), reminder: opts.reminder, account: auth.account }),
     });
     const body = (await res.json().catch(() => ({}))) as Partial<EmailLinksResult> & { error?: string };
     if (!res.ok || !body.sent) return { error: body.error ?? "Couldn't email the links." };

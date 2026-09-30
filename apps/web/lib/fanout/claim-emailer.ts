@@ -125,10 +125,11 @@ export async function sendClaimEmails(input: {
   requests: ClaimEmailRequest[];
   accessToken: string | null;
   mockAccount?: unknown;
+  reminder?: boolean;
 }): Promise<ClaimEmailResult> {
   if (!emailConfigured()) {
     console.error("[claim-email] RESEND_API_KEY or CLAIM_EMAIL_FROM is not set");
-    throw new EmailRefused("Emailing links isn't set up yet. Copy the links from the payout page instead.");
+    throw new EmailRefused("Emailing links isn't set up yet. Use Copy link instead.");
   }
   const mine = await callerAccounts(input.accessToken, input.mockAccount);
   const signers = input.requests.map((r) => claimSignerFromKey(r.key));
@@ -152,6 +153,7 @@ export async function sendClaimEmails(input: {
       link,
       note: req.note,
       expiresAt: claim.expiresAt,
+      reminder: input.reminder,
     });
     outgoing.push({ claimSigner, to: req.email.trim(), subject, text, html });
   });

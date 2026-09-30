@@ -5,7 +5,7 @@ import { useAuth } from "@/lib/auth/provider";
 import { hashEmail } from "@/lib/email-hash";
 import { emailClaimLinks } from "./claim-email-client";
 import { generateClaimKey } from "./claim-keys";
-import { saveClaims } from "./claim-link-store";
+import { saveClaims, type StoredClaim } from "./claim-link-store";
 import { mockRefundUnclaimed } from "./mock-client";
 import { NotFoundError } from "./types";
 import { config } from "@/lib/config";
@@ -107,6 +107,22 @@ export function useCreatePayout() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: fanoutKeys.treasury(address) });
       void queryClient.invalidateQueries({ queryKey: fanoutKeys.batches(address) });
+    },
+  });
+}
+
+/** Emails (or re-emails) claim links. Resolves with what was sent; the caller shows failures. */
+export function useEmailClaimLinks() {
+  const auth = useAuth();
+  return useMutation({
+    mutationFn: async ({ claims, reminder }: { claims: StoredClaim[]; reminder?: boolean }) => {
+      const result = await emailClaimLinks(
+        claims.map((c) => ({ key: c.privateKey, claimSigner: c.claimSigner, email: c.email, note: c.note })),
+        { accessToken: (await auth.getAccessToken?.()) ?? null, account: auth.user?.address },
+        { reminder },
+      );
+      if ("error" in result) throw new Error(result.error);
+      return result;
     },
   });
 }

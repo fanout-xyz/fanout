@@ -31,6 +31,14 @@ const KEY = "fanout.claims.v2";
 const LEGACY_PREFIX = "fanout.claims.v1."; // per-batch arrays from earlier builds
 
 let cache: { raw: string | null; map: ClaimMap } | null = null;
+const listeners = new Set<() => void>();
+const notify = () => listeners.forEach((l) => l());
+
+/** For useSyncExternalStore: fires after this tab saves or updates claims. */
+export function subscribeClaims(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
 
 function readMap(): ClaimMap {
   let raw: string | null = null;
@@ -64,6 +72,7 @@ export function saveClaims(claims: StoredClaim[]): boolean {
     const raw = JSON.stringify(map);
     window.localStorage.setItem(KEY, raw);
     cache = { raw, map };
+    notify();
     return true;
   } catch {
     return false;
@@ -82,8 +91,10 @@ export function markEmailed(claimSigners: string[], at = Date.now()): void {
     window.localStorage.setItem(KEY, raw);
     cache = { raw, map };
   } catch {
-    // Ignore: the emails went out either way.
+    // Storage failed: keep the timestamps for this session so the page still shows them.
+    cache = { raw: cache?.raw ?? null, map };
   }
+  notify();
 }
 
 /** All claims this browser knows about. Stable object between saves (safe for useSyncExternalStore). */

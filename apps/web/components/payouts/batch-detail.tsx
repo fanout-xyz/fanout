@@ -22,12 +22,13 @@ import { batchToCsv } from "@/lib/batch-export";
 import { explorerTxUrl } from "@/lib/chains";
 import { config } from "@/lib/config";
 import { buildClaimLink } from "@/lib/fanout/claim-keys";
-import { loadAllClaims, type StoredClaim } from "@/lib/fanout/claim-link-store";
+import { loadAllClaims, subscribeClaims, type StoredClaim } from "@/lib/fanout/claim-link-store";
 import type { PayoutStatus } from "@/lib/fanout/client";
 import { useBatch, useMockExpireUnclaimed } from "@/lib/fanout/queries";
 import { formatUsd } from "@/lib/money";
 import { cn } from "@/lib/utils";
 import { ClaimLinkActions } from "./claim-link-actions";
+import { EmailLinkButton, emailedLabel, UnclaimedReminder } from "./claim-reminders";
 
 const dateFormat = new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short" });
 const FILTERS = ["all", "sent", "claimed", "refunded"] as const;
@@ -51,7 +52,7 @@ export function BatchDetail({ id }: { id: string }) {
   const [includeLinks, setIncludeLinks] = useState(false);
 
   // Claim keys live in this browser only (see claim-link-store). Read on the client.
-  const allClaims = useSyncExternalStore(subscribeNoop, loadAllClaims, () => null);
+  const allClaims = useSyncExternalStore(subscribeClaims, loadAllClaims, () => null);
   const origin = useSyncExternalStore(subscribeNoop, () => window.location.origin, () => "");
 
   const rows: Row[] = useMemo(() => {
@@ -167,6 +168,11 @@ export function BatchDetail({ id }: { id: string }) {
         </p>
       )}
 
+      <UnclaimedReminder
+        waiting={rows.flatMap((r) => (r.status === "sent" && r.claim ? [r.claim] : []))}
+        total={rows.filter((r) => r.status === "sent" && r.claim).reduce((t, r) => t + r.amount, 0n)}
+      />
+
       <section aria-labelledby="people-title" className="rounded-lg border border-line bg-surface">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-6 py-4">
           <h2 id="people-title" className="font-display text-2xl tracking-[-0.015em]">
@@ -212,7 +218,7 @@ export function BatchDetail({ id }: { id: string }) {
                     <td className="max-w-[18rem] truncate px-6" title={r.claim?.email}>
                       {r.claim?.email ?? <span className="text-muted">Person {r.n}</span>}
                       {r.claim && r.status === "sent" && (
-                        <span className="block text-xs text-muted">{r.claim.emailedAt ? "Link emailed" : "Not emailed yet"}</span>
+                        <span className="block text-xs text-muted">{emailedLabel(r.claim)}</span>
                       )}
                     </td>
                     <td className="px-6 text-right font-bold tabular-nums">{formatUsd(r.amount)}</td>
@@ -226,11 +232,14 @@ export function BatchDetail({ id }: { id: string }) {
                       {r.status !== "sent" ? (
                         <span className="block text-right text-sm text-muted">{r.status === "claimed" ? "Used" : "Expired"}</span>
                       ) : r.claim && origin ? (
-                        <ClaimLinkActions
-                          link={buildClaimLink(origin, r.claim.privateKey as `0x${string}`)}
-                          email={r.claim.email}
-                          amount={r.amount}
-                        />
+                        <div className="flex items-center justify-end gap-2">
+                          <EmailLinkButton claim={r.claim} amount={r.amount} />
+                          <ClaimLinkActions
+                            link={buildClaimLink(origin, r.claim.privateKey as `0x${string}`)}
+                            email={r.claim.email}
+                            amount={r.amount}
+                          />
+                        </div>
                       ) : (
                         <span className="block text-right text-sm text-muted">Not on this device</span>
                       )}
