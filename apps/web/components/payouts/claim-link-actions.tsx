@@ -1,11 +1,14 @@
 "use client";
 
+import { QrCode, Share2 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import posthog from "posthog-js";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { config } from "@/lib/config";
 import { formatUsd } from "@/lib/money";
 
 type Props = { link: string; email: string; amount: bigint };
@@ -26,17 +29,51 @@ export function ClaimLinkActions({ link, email, amount }: Props) {
     }
   }
 
+  // The key is in the link's fragment, which never reaches a server. Sharing goes through the
+  // phone's share sheet or the WhatsApp app (whatsapp://), never a web URL like wa.me that would
+  // carry the link to a server in its query string.
+  async function share() {
+    const text = `${config.platformName} sent you ${formatUsd(amount)}. Claim it here: ${link}`;
+    if (typeof navigator.share === "function") {
+      try {
+        await navigator.share({ title: `You've been paid ${formatUsd(amount)}`, text });
+        posthog.capture("claim_link_shared", { via: "share_sheet" });
+      } catch (err) {
+        if (!(err instanceof DOMException && err.name === "AbortError")) {
+          toast.error("Couldn't open sharing. Copy the link instead.");
+        }
+      }
+      return;
+    }
+    window.location.href = `whatsapp://send?text=${encodeURIComponent(text)}`;
+    posthog.capture("claim_link_shared", { via: "whatsapp" });
+    toast("Opening WhatsApp. If nothing happens, copy the link instead.");
+  }
+
   return (
-    <div className="flex items-center justify-end gap-2">
+    <div className="flex items-center justify-end gap-1">
       <Button variant="secondary" size="sm" onClick={() => void copy()} aria-label={`Copy claim link for ${email}`}>
         {copied ? "Copied" : "Copy link"}
       </Button>
-      <Dialog>
-        <DialogTrigger asChild>
-          <Button variant="ghost" size="sm" aria-label={`Show QR code for ${email}`}>
-            QR
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button variant="ghost" size="icon-sm" onClick={() => void share()} aria-label={`Share claim link for ${email} on WhatsApp or another app`}>
+            <Share2 aria-hidden className="size-4" />
           </Button>
-        </DialogTrigger>
+        </TooltipTrigger>
+        <TooltipContent>Share on WhatsApp</TooltipContent>
+      </Tooltip>
+      <Dialog>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DialogTrigger asChild>
+              <Button variant="ghost" size="icon-sm" aria-label={`Show QR code for ${email}`}>
+                <QrCode aria-hidden className="size-4" />
+              </Button>
+            </DialogTrigger>
+          </TooltipTrigger>
+          <TooltipContent>QR code</TooltipContent>
+        </Tooltip>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
             <DialogTitle className="font-display text-2xl tracking-[-0.015em]">{formatUsd(amount)} for {email}</DialogTitle>
