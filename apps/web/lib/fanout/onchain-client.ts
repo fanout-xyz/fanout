@@ -18,6 +18,7 @@ import { config } from "@/lib/config";
 import { MAX_ROWS } from "@/lib/csv";
 import { batchPayoutAbi, claimEscrowAbi, erc20Abi, treasuryAbi } from "./abis";
 import type { FanoutClient, FanoutClientContext } from "./client";
+import { indexedBatches, indexedBatchTx, indexedPayeeHistory, indexerEnabled, mergeHistory } from "./indexer";
 import { recallActivity, recallBatchTx, rememberActivity, rememberBatchTx } from "./local-records";
 import { NotFoundError, type BatchSummary, type PayoutStatus } from "./types";
 
@@ -36,7 +37,7 @@ const STATUS: readonly PayoutStatus[] = ["sent", "claimed", "refunded"];
  * called; adding all errors to each simulation lets viem decode it by name.
  */
 export const ALL_CONTRACT_ERRORS = [...treasuryAbi, ...batchPayoutAbi, ...claimEscrowAbi].filter((x) => x.type === "error");
-/** How many recent batches the dashboard scans (there's no per-platform view onchain). */
+/** How many recent batches the dashboard scans when the indexer is unavailable (there's no per-platform view onchain). */
 const LIST_SCAN_LIMIT = 200;
 
 let publicClient: PublicClient | null = null;
@@ -141,6 +142,32 @@ export function createOnchainClient(ctx: FanoutClientContext): FanoutClient {
     });
   }
 
+  /** Batches first..last (newest first) that belong to `platform`, read from the contracts. */
+  async function scanBatches(first: number, last: number, platform: Address): Promise<BatchSummary[]> {
+    if (last < first) return [];
+    const ids = Array.from({ length: last - first + 1 }, (_, i) => BigInt(last - i));
+    const batches = await reader().multicall({
+      allowFailure: false,
+      contracts: ids.map((id) => ({ address: c.batchPayout, abi: batchPayoutAbi, functionName: "getBatch" as const, args: [id] as const })),
+    });
+    const mine = batches
+      .map(([p, createdAt, total, signers], i) => ({ id: ids[i].toString(), p, createdAt, total, signers }))
+      .filter((b) => b.p.toLowerCase() === platform.toLowerCase());
+    const claims = await statusesOf(mine.flatMap((b) => b.signers));
+    let offset = 0;
+    return mine.map((b): BatchSummary => {
+      const slice = claims.slice(offset, (offset += b.signers.length));
+      return {
+        id: b.id,
+        createdAt: Number(b.createdAt) * 1000,
+        total: b.total,
+        txHash: recallBatchTx(activeChain.id, c.batchPayout, b.id) ?? zeroHash,
+        rowCount: b.signers.length,
+        claimedCount: slice.filter(([, , status]) => status === 1).length,
+      };
+    });
+  }
+
   return {
     getTreasuryBalance: (platform) =>
       guard(() => reader().readContract({ address: c.treasury, abi: treasuryAbi, functionName: "balanceOf", args: [platform] })),
@@ -191,7 +218,7 @@ export function createOnchainClient(ctx: FanoutClientContext): FanoutClient {
           id: batchId,
           createdAt: Number(createdAt) * 1000,
           total,
-          txHash: recallBatchTx(activeChain.id, c.batchPayout, batchId) ?? zeroHash,
+          txHash: recallBatchTx(activeChain.id, c.batchPayout, batchId) ?? (await indexedBatchTx(batchId).catch(() => undefined)) ?? zeroHash,
           rows: signers.map((claimSigner, i) => {
             const [amount, , status, , emailHash] = claims[i];
             return { claimSigner, amount, status: STATUS[status], emailHash: emailHash === zeroHash ? undefined : emailHash };
@@ -260,34 +287,32 @@ export function createOnchainClient(ctx: FanoutClientContext): FanoutClient {
 
     listBatches: (platform) =>
       guard(async () => {
-        const next = await reader().readContract({ address: c.batchPayout, abi: batchPayoutAbi, functionName: "nextBatchId" });
-        const last = Number(next) - 1;
-        const first = Math.max(1, last - LIST_SCAN_LIMIT + 1);
+        const next = Number(await reader().readContract({ address: c.batchPayout, abi: batchPayoutAbi, functionName: "nextBatchId" }));
+        const last = next - 1;
         if (last < 1) return [];
-        const ids = Array.from({ length: last - first + 1 }, (_, i) => BigInt(last - i));
-        const batches = await reader().multicall({
-          allowFailure: false,
-          contracts: ids.map((id) => ({ address: c.batchPayout, abi: batchPayoutAbi, functionName: "getBatch" as const, args: [id] as const })),
-        });
-        const mine = batches
-          .map(([p, createdAt, total, signers], i) => ({ id: ids[i].toString(), p, createdAt, total, signers }))
-          .filter((b) => b.p.toLowerCase() === platform.toLowerCase());
-        const claims = await statusesOf(mine.flatMap((b) => b.signers));
-        let offset = 0;
-        return mine.map((b): BatchSummary => {
-          const slice = claims.slice(offset, (offset += b.signers.length));
-          return {
-            id: b.id,
-            createdAt: Number(b.createdAt) * 1000,
-            total: b.total,
-            txHash: recallBatchTx(activeChain.id, c.batchPayout, b.id) ?? zeroHash,
-            rowCount: b.signers.length,
-            claimedCount: slice.filter(([, , status]) => status === 1).length,
-          };
-        });
+        if (indexerEnabled()) {
+          try {
+            const { batches, latestId } = await indexedBatches(platform);
+            // The indexer trails the chain by a few seconds: read anything newer straight from the contract.
+            const fresh = await scanBatches(Math.max(latestId + 1, last - LIST_SCAN_LIMIT + 1), last, platform);
+            return [...fresh, ...batches];
+          } catch {
+            // Indexer down or unreachable: fall through to the chain scan.
+          }
+        }
+        return scanBatches(Math.max(1, last - LIST_SCAN_LIMIT + 1), last, platform);
       }),
 
-    // Until an indexer exists: what this device recorded (claims and sends made here).
-    getPayeeHistory: async (address) => recallActivity(activeChain.id, address),
+    // Indexed history (any device), plus what this device did that the indexer hasn't caught up to.
+    getPayeeHistory: async (address) => {
+      const local = recallActivity(activeChain.id, address);
+      if (!indexerEnabled()) return local;
+      try {
+        return mergeHistory(await indexedPayeeHistory(address), local);
+      } catch {
+        return local;
+      }
+    },
   };
+
 }

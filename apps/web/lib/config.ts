@@ -29,6 +29,14 @@ export const config = {
     claimEscrow: optionalAddress(process.env.NEXT_PUBLIC_CLAIM_ESCROW_ADDRESS || deployedAddresses.claimEscrow),
   },
 
+  // Envio indexer (indexer/) GraphQL endpoint: payout history, tx links, payee activity. Onchain mode only.
+  // The free Envio plan gives each deployment its own URL, so update this after an indexer redeploy.
+  // "off" = don't use it (fall back to chain reads and this browser's records).
+  indexerUrl:
+    process.env.NEXT_PUBLIC_INDEXER_URL === "off"
+      ? ""
+      : process.env.NEXT_PUBLIC_INDEXER_URL || "https://indexer.dev.hyperindex.xyz/e70db85/v1/graphql",
+
   // Display name shown to payees ("You've been paid $X by <Platform>").
   platformName: process.env.NEXT_PUBLIC_PLATFORM_NAME || "Demo Creator Platform",
 } as const;
