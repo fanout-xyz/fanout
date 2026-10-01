@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Bricolage_Grotesque, Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./providers";
+import { siteOrigin } from "@/lib/site-url";
 
 const bricolage = Bricolage_Grotesque({
   variable: "--font-bricolage",
@@ -22,7 +23,7 @@ const description =
   "Fanout turns one deposit into many payouts that land in seconds, in dollars. Built at Monad Metropolis 2026.";
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000"),
+  metadataBase: new URL(siteOrigin()),
   title,
   description,
   manifest: "/site.webmanifest",
