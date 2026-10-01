@@ -10,7 +10,7 @@ const g = globalThis as typeof globalThis & { __fanoutMock?: ReturnType<typeof e
 const platform = privateKeyToAccount("0x" + "11".repeat(32) as `0x${string}`).address;
 const other = privateKeyToAccount("0x" + "22".repeat(32) as `0x${string}`).address;
 
-let sentBodies: { to: string[]; html: string; text: string }[][] = [];
+let sentBodies: { from: string; to: string[]; html: string; text: string }[][] = [];
 
 beforeEach(() => {
   process.env.RESEND_API_KEY = "re_test";
@@ -63,6 +63,14 @@ describe("sendClaimEmails", () => {
     const asOther = await sendClaimEmails({ requests: [{ key: key.privateKey, email: "ana@example.com" }], accessToken: null, mockAccount: other });
     expect(asOther.failed[0].reason).toBe("This payout wasn't sent from your account.");
     expect(sentBodies).toEqual([]);
+  });
+
+  it("sends from pay@fanout.tech when CLAIM_EMAIL_FROM isn't set", async () => {
+    delete process.env.CLAIM_EMAIL_FROM;
+    const key = pay("ana@example.com");
+    const res = await sendClaimEmails({ requests: [{ key: key.privateKey, email: "ana@example.com" }], accessToken: null, mockAccount: platform });
+    expect(res.sent).toEqual([key.claimSigner]);
+    expect(sentBodies[0][0].from).toBe("Fanout <pay@fanout.tech>");
   });
 
   it("refuses when email isn't configured, and rejects malformed requests", async () => {

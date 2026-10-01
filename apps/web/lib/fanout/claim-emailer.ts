@@ -23,8 +23,8 @@ import { need } from "./onchain-client";
  * platform, and go to the exact email address the payout was made to (its onchain emailHash).
  * The link always points at our own origin, and the amount comes from the chain, not the request.
  *
- * Env (server only): RESEND_API_KEY, CLAIM_EMAIL_FROM (e.g. "Fanout <pay@fanout.tech>"), optional
- * CLAIM_EMAIL_REPLY_TO. Links use NEXT_PUBLIC_SITE_URL (a phone can't open localhost; use a tunnel).
+ * Env (server only): RESEND_API_KEY; optional CLAIM_EMAIL_FROM (default "Fanout <pay@fanout.tech>",
+ * the domain verified in Resend) and CLAIM_EMAIL_REPLY_TO. Links use NEXT_PUBLIC_SITE_URL (a phone can't open localhost; use a tunnel).
  */
 
 export type ClaimEmailRequest = { key: Hex; email: string; note?: string };
@@ -35,8 +35,10 @@ export class EmailRefused extends Error {}
 
 type ClaimRecord = { amount: bigint; platform: Address; status: "sent" | "claimed" | "refunded"; emailHash?: Hex; expiresAt?: number };
 
+const DEFAULT_FROM = "Fanout <pay@fanout.tech>";
+
 export function emailConfigured(): boolean {
-  return !!process.env.RESEND_API_KEY && !!process.env.CLAIM_EMAIL_FROM;
+  return !!process.env.RESEND_API_KEY;
 }
 
 export function parseRequests(body: unknown): ClaimEmailRequest[] {
@@ -97,7 +99,7 @@ async function readClaims(signers: Address[]): Promise<(ClaimRecord | null)[]> {
 type Outgoing = { claimSigner: Address; to: string; subject: string; text: string; html: string };
 
 async function sendViaResend(emails: Outgoing[]): Promise<ClaimEmailResult> {
-  const from = process.env.CLAIM_EMAIL_FROM!;
+  const from = process.env.CLAIM_EMAIL_FROM || DEFAULT_FROM;
   const replyTo = process.env.CLAIM_EMAIL_REPLY_TO;
   const result: ClaimEmailResult = { sent: [], failed: [] };
   // Resend's batch endpoint takes up to 100 emails per call.
@@ -128,7 +130,7 @@ export async function sendClaimEmails(input: {
   reminder?: boolean;
 }): Promise<ClaimEmailResult> {
   if (!emailConfigured()) {
-    console.error("[claim-email] RESEND_API_KEY or CLAIM_EMAIL_FROM is not set");
+    console.error("[claim-email] RESEND_API_KEY is not set");
     throw new EmailRefused("Emailing links isn't set up yet. Use Copy link instead.");
   }
   const mine = await callerAccounts(input.accessToken, input.mockAccount);
