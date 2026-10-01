@@ -7,7 +7,7 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-export default function WalletLayout({ children }: LayoutProps<"/wallet">) {
+export default function BalanceLayout({ children }: LayoutProps<"/balance">) {
   return (
     <MotionRoot>
       <PayeeShell>{children}</PayeeShell>

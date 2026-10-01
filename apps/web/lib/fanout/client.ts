@@ -34,7 +34,7 @@ export interface FanoutClient {
 
   /** PROPOSED: past batches for the dashboard. Onchain version likely comes from the indexer. */
   listBatches(platform: Address): Promise<BatchSummary[]>;
-  /** PROPOSED: payee activity for /wallet. Onchain version likely comes from the indexer. */
+  /** PROPOSED: payee activity for /balance. Onchain version likely comes from the indexer. */
   getPayeeHistory(address: Address): Promise<PayeeHistoryItem[]>;
 }
 

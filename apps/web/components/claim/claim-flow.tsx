@@ -204,7 +204,7 @@ function humanClaimError(err: unknown): string {
 function BalanceLink() {
   return (
     <Button asChild size="lg" variant="secondary" className="h-14 w-full">
-      <Link href="/wallet">See your balance</Link>
+      <Link href="/balance">See your balance</Link>
     </Button>
   );
 }
