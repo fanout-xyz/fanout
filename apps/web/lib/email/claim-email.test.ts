@@ -12,9 +12,19 @@ describe("claimEmail", () => {
     expect(text).toMatch(/Claim it by \w+ \d+, \d{4}/);
   });
 
-  it("uses no crypto words", () => {
-    const { subject, text } = claimEmail({ platformName: "Acme", amount: 1n, link, note: "Weekly", expiresAt: 1_790_000_000 });
-    expect(`${subject} ${text}`).not.toMatch(/wallet|crypto|token|chain|gas|AUSD|stablecoin/i);
+  it("uses no crypto words (the wallet.fanout.tech address aside)", () => {
+    const { subject, text } = claimEmail({
+      platformName: "Acme", amount: 1n, link, balanceUrl: "https://wallet.fanout.tech", note: "Weekly", expiresAt: 1_790_000_000,
+    });
+    expect(`${subject} ${text}`.replaceAll("wallet.fanout.tech", "")).not.toMatch(/wallet|crypto|token|chain|gas|AUSD|stablecoin/i);
+  });
+
+  it("tells the payee where to check their balance later", () => {
+    const { text, html } = claimEmail({ platformName: "Acme", amount: 1n, link, balanceUrl: "https://wallet.fanout.tech" });
+    expect(text).toContain("Check your balance anytime at https://wallet.fanout.tech");
+    expect(html).toContain('<a href="https://wallet.fanout.tech"');
+    expect(html).toContain(">wallet.fanout.tech</a>");
+    expect(claimEmail({ platformName: "Acme", amount: 1n, link }).text).not.toContain("Check your balance");
   });
 
   it("escapes the platform's note and drops notes with links", () => {

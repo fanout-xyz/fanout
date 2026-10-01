@@ -9,3 +9,17 @@ export function siteOrigin(): string {
   const origin = process.env.NEXT_PUBLIC_SITE_URL || (vercel ? `https://${vercel}` : "http://localhost:3000");
   return origin.replace(/\/$/, "");
 }
+
+/** The live payee address. Same app as the platform side, under its own name (see next.config.ts). */
+export const WALLET_ORIGIN = "https://wallet.fanout.tech";
+
+/**
+ * Where payees go: claim links and "check your balance". wallet.fanout.tech whenever the site runs
+ * on fanout.tech; elsewhere (localhost, Vercel previews) the site itself. NEXT_PUBLIC_WALLET_URL wins.
+ */
+export function walletOrigin(): string {
+  if (process.env.NEXT_PUBLIC_WALLET_URL) return process.env.NEXT_PUBLIC_WALLET_URL.replace(/\/$/, "");
+  const site = siteOrigin();
+  const host = new URL(site).hostname;
+  return host === "fanout.tech" || host.endsWith(".fanout.tech") ? WALLET_ORIGIN : site;
+}
