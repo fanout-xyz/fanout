@@ -44,6 +44,8 @@ export type PayeeHistoryItem = {
   counterparty: Address;
   txHash: Hex;
   timestamp: number; // unix ms
+  /** True when this row is a claimed platform payout, not a transfer. Payouts count as income. */
+  payout?: boolean;
 };
 
 /** Thrown when a batch or claim doesn't exist. Not worth retrying. */
