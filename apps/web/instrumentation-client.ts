@@ -8,7 +8,6 @@ const onClaimPage = () => window.location.pathname.startsWith("/claim");
 
 function beforeSend(event: CaptureResult | null): CaptureResult | null {
   if (!event) return null;
-  // Replays of the claim page would record its URL, fragment included; skip them entirely.
   if (event.event === "$snapshot" && onClaimPage()) return null;
   return scrubClaimKeys(event);
 }

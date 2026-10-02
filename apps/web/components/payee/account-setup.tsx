@@ -38,7 +38,14 @@ export function AccountSetup({ mode: initialMode, onReady }: { mode: "create" | 
       }
     } catch (err) {
       if (err instanceof PasskeyUnsupported) setProblem({ message: "This phone or browser can't do this step.", unsupported: true });
-      else if (err instanceof PasskeyCancelled) setProblem({ message: "That was cancelled. Try again when you're ready." });
+      else if (err instanceof PasskeyCancelled) {
+        setProblem({
+          message:
+            mode === "open"
+              ? "Nothing was opened. If this device has no account yet, choose Set up your account below."
+              : "That was cancelled. Try again when you're ready.",
+        });
+      }
       else if (err instanceof WrongPasskey) setProblem({ message: err.message });
       else {
         console.error("[account-setup]", err instanceof Error ? err.message : err);
@@ -70,13 +77,18 @@ export function AccountSetup({ mode: initialMode, onReady }: { mode: "create" | 
         </Button>
       )}
 
-      {canUse && mode === "create" && (
+      {canUse && (
         <button
           type="button"
-          onClick={() => setMode("open")}
+          onClick={() => {
+            setProblem(null);
+            setMode(mode === "create" ? "open" : "create");
+          }}
           className="rounded-sm text-sm font-semibold underline underline-offset-4 outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
-          Already set up on another phone?
+          {/* Opening only finds a passkey this device already has; with none, the browser just offers
+              a phone QR code. Setting up is what offers Touch ID, Face ID or the password manager. */}
+          {mode === "create" ? "Already set up on another phone?" : "New here, or nothing to open? Set up your account"}
         </button>
       )}
 

@@ -1,25 +1,51 @@
 "use client";
 
+import { ScanLine } from "lucide-react";
 import posthog from "posthog-js";
-import { useState, type FormEvent } from "react";
+import { useMemo, useState, type FormEvent } from "react";
 import { PetalsMark } from "@/components/brand/petals-mark";
 import { Spinner } from "@/components/tx-progress";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { usePayeeAccount } from "@/lib/payee/payee-account";
-import { useSend } from "@/lib/fanout/queries";
+import { usePayeeHistory, useSend } from "@/lib/fanout/queries";
 import { formatUsd } from "@/lib/money";
+import type { PaymentRequest } from "@/lib/payment-request";
 import { checkSend, shortAddress } from "@/lib/send-validation";
+import { BackButton, groupAddress } from "./wallet-ui";
 
 type Step = { kind: "form" } | { kind: "review"; amount: bigint; to: `0x${string}` } | { kind: "sent"; amount: bigint; to: `0x${string}` };
 
-/** Send dollars to an address. The address is the one thing shown as typed (guidelines §8). */
-export function SendFlow({ balance, onClose }: { balance: bigint; onClose: () => void }) {
+/**
+ * Send dollars to an address. The address is the one thing shown as typed (guidelines §8).
+ * `request` pre-fills it from a scanned code or a pay link; the payer still reviews everything.
+ */
+export function SendFlow({
+  balance,
+  onClose,
+  onScan,
+  request,
+}: {
+  balance: bigint;
+  onClose: () => void;
+  onScan?: () => void;
+  request?: PaymentRequest;
+}) {
   const self = usePayeeAccount().address;
   const send = useSend();
-  const [amount, setAmount] = useState("");
-  const [to, setTo] = useState("");
+  const history = usePayeeHistory();
+  const [amount, setAmount] = useState(request?.amount ? formatUsd(request.amount).replace(/[$,]/g, "") : "");
+  const [to, setTo] = useState<string>(request?.to ?? "");
+  const note = request?.note;
+  // People this account sent to before, newest first: one tap instead of pasting again.
+  const recent = useMemo(() => {
+    const seen = new Set<string>();
+    return (history.data ?? [])
+      .filter((i) => i.kind === "sent" && !seen.has(i.counterparty.toLowerCase()) && seen.add(i.counterparty.toLowerCase()))
+      .slice(0, 4)
+      .map((i) => i.counterparty);
+  }, [history.data]);
   const [errors, setErrors] = useState<{ amount?: string; to?: string }>({});
   const [step, setStep] = useState<Step>({ kind: "form" });
 
@@ -65,6 +91,12 @@ export function SendFlow({ balance, onClose }: { balance: bigint; onClose: () =>
           <p className="text-muted">You&apos;re sending</p>
           <p className="mt-1 font-display text-[56px] leading-none tracking-[-0.03em] tabular-nums">{formatUsd(step.amount)}</p>
         </div>
+        {note && (
+          <div>
+            <p className="text-sm font-semibold text-muted">For</p>
+            <p className="mt-1 text-lg">{note}</p>
+          </div>
+        )}
         <div>
           <p className="text-sm font-semibold text-muted">To this address</p>
           {/* Full address, grouped in fours, so it's easy to compare with what the recipient gave you. */}
@@ -99,6 +131,11 @@ export function SendFlow({ balance, onClose }: { balance: bigint; onClose: () =>
     <form onSubmit={review} noValidate className="flex flex-1 flex-col gap-6 px-5 pt-4 pb-6">
       <BackButton onClick={onClose} label="Back" />
       <h1 className="font-display text-[32px] leading-tight tracking-[-0.02em]">Send money</h1>
+      {note && (
+        <p className="-mt-3 rounded-md bg-card-raised px-4 py-3 text-sm">
+          <span className="font-semibold">Payment request:</span> {note}
+        </p>
+      )}
 
       <div className="grid gap-2">
         <div className="flex items-baseline justify-between">
@@ -136,27 +173,49 @@ export function SendFlow({ balance, onClose }: { balance: bigint; onClose: () =>
 
       <div className="grid gap-2">
         <Label htmlFor="send-to">Send to</Label>
-        <Input
-          id="send-to"
-          autoComplete="off"
-          autoCapitalize="none"
-          autoCorrect="off"
-          spellCheck={false}
-          placeholder="0x…"
-          value={to}
-          onChange={(e) => setTo(e.target.value)}
-          aria-invalid={!!errors.to}
-          aria-describedby={errors.to ? "send-to-error" : "send-to-hint"}
-          className="h-14 font-mono text-[15px]"
-        />
+        <div className="flex gap-2">
+          <Input
+            id="send-to"
+            autoComplete="off"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            placeholder="0x…"
+            value={to}
+            onChange={(e) => setTo(e.target.value)}
+            aria-invalid={!!errors.to}
+            aria-describedby={errors.to ? "send-to-error" : "send-to-hint"}
+            className="h-14 font-mono text-[15px]"
+          />
+          {onScan && (
+            <Button type="button" variant="secondary" size="icon-lg" className="shrink-0" onClick={onScan} aria-label="Scan a code">
+              <ScanLine />
+            </Button>
+          )}
+        </div>
         {errors.to ? (
           <p id="send-to-error" className="text-sm text-danger">
             {errors.to}
           </p>
         ) : (
           <p id="send-to-hint" className="text-sm text-muted">
-            Paste the address the person you&apos;re paying gave you.
+            Paste the address the person you&apos;re paying gave you, or scan their code.
           </p>
+        )}
+        {recent.length > 0 && (
+          <div className="mt-1 flex flex-wrap gap-2" aria-label="People you paid before">
+            {recent.map((a) => (
+              <button
+                key={a}
+                type="button"
+                onClick={() => setTo(a)}
+                aria-pressed={to.toLowerCase() === a.toLowerCase()}
+                className="rounded-full border border-line bg-surface px-3 py-1.5 font-mono text-sm outline-none hover:bg-card-raised focus-visible:ring-2 focus-visible:ring-ring aria-pressed:border-primary aria-pressed:text-primary"
+              >
+                {shortAddress(a)}
+              </button>
+            ))}
+          </div>
         )}
       </div>
 
@@ -169,27 +228,9 @@ export function SendFlow({ balance, onClose }: { balance: bigint; onClose: () =>
   );
 }
 
-/** "0x5290 8400 0985 …" */
-function groupAddress(address: string): string {
-  return `0x ${(address.slice(2).match(/.{1,4}/g) ?? []).join(" ")}`;
-}
-
 function humanSendError(err: Error): string {
   if (/not enough/i.test(err.message)) return "You don't have enough for that. Nothing was sent.";
   if (/reach the server|connection/i.test(err.message)) return "You seem to be offline. Nothing was sent. Try again.";
   if (/sign in/i.test(err.message)) return "Your session ended. Sign in again, then send.";
   return "Something went wrong and nothing was sent. Try again in a moment.";
-}
-
-function BackButton({ onClick, label, disabled }: { onClick: () => void; label: string; disabled?: boolean }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className="w-fit rounded-sm text-sm font-semibold text-muted outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
-    >
-      ← {label}
-    </button>
-  );
 }
