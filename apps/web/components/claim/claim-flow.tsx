@@ -78,6 +78,9 @@ function ClaimForKey({ privateKey }: { privateKey: Hex | null | undefined }) {
           demo_mode: config.useMock,
           // Which currency the payee sees: a proxy for the payout country.
           local_currency: localCurrency ?? "USD",
+          // Person properties for retention: split payees from platforms, and know when each started.
+          $set: { is_payee: true },
+          $set_once: { first_claim_at: new Date().toISOString() },
         });
         // The key stays in the URL: once claimed it's spent (a second claim is refused), and
         // the page needs it to keep showing this payment.
