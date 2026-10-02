@@ -1,6 +1,6 @@
 import { cn } from "@/lib/utils";
 
-// Desk research from the bounty plan (Sep 30, 2026); every figure is from the provider's own page.
+// Every figure is from the provider's own published pricing page.
 type Row = { name: string; cost: string; needs: string; breaks: string; source?: string; fanout?: boolean };
 
 const ROWS: Row[] = [
