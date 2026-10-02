@@ -26,7 +26,8 @@ export const metadata: Metadata = {
   metadataBase: new URL(siteOrigin()),
   title,
   description,
-  manifest: "/site.webmanifest",
+  // The manifest comes from app/manifest.ts. On an iPhone home screen, open full screen like an app.
+  appleWebApp: { capable: true, title: "Fanout", statusBarStyle: "default" },
   icons: {
     icon: [
       { url: "/favicon.ico", sizes: "48x48" },

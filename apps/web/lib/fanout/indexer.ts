@@ -62,14 +62,21 @@ export async function indexedBatchTx(batchId: string): Promise<Hex | undefined> 
   return data.Batch_by_pk?.txHash;
 }
 
-type ActivityRow = { kind: "Received" | "Sent"; amount: string; counterparty: Address; txHash: Hex; timestamp: number };
+type ActivityRow = {
+  kind: "Received" | "Sent";
+  amount: string;
+  counterparty: Address;
+  txHash: Hex;
+  timestamp: number;
+  claim_id?: string | null;
+};
 
 /** A payee's claims, and AUSD they sent or received after their first claim, newest first. */
 export async function indexedPayeeHistory(address: Address): Promise<PayeeHistoryItem[]> {
   const data = await query<{ PayeeActivity: ActivityRow[] }>(
     `query ($payee: String!) {
       PayeeActivity(where: { payee_id: { _eq: $payee } }, order_by: { timestamp: desc }, limit: 200) {
-        kind amount counterparty txHash timestamp
+        kind amount counterparty txHash timestamp claim_id
       }
     }`,
     { payee: getAddress(address) },
@@ -80,6 +87,7 @@ export async function indexedPayeeHistory(address: Address): Promise<PayeeHistor
     counterparty: a.counterparty,
     txHash: a.txHash,
     timestamp: a.timestamp * 1000,
+    ...(a.claim_id ? { payout: true } : {}),
   }));
 }
 

@@ -7,7 +7,9 @@ import { LocalAmount } from "@/components/payee/local-amount";
 import { useAuth } from "@/lib/auth/provider";
 import { usePayeeBalance } from "@/lib/fanout/queries";
 import { formatUsd, toCents } from "@/lib/money";
+import { InstallPrompt } from "@/components/payee/install-prompt";
 import { HistoryList } from "./history-list";
+import { PassportCard } from "./passport-card";
 import { PayeeAuthGate } from "./payee-auth-gate";
 import { SendFlow } from "./send-flow";
 
@@ -66,6 +68,10 @@ function Wallet() {
         {balance.data === 0n && <p className="text-center text-sm text-muted">Nothing to send yet.</p>}
         <p className="text-center text-sm text-muted">Cash-out to local banks is on the roadmap.</p>
       </div>
+
+      <PassportCard />
+
+      <InstallPrompt />
 
       <HistoryList />
 

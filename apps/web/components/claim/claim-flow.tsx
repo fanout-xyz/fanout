@@ -10,6 +10,7 @@ import { PetalsMark } from "@/components/brand/petals-mark";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AccountSetup } from "@/components/payee/account-setup";
+import { InstallPrompt } from "@/components/payee/install-prompt";
 import { LocalAmount } from "@/components/payee/local-amount";
 import { useAuth } from "@/lib/auth/provider";
 import { activeChain } from "@/lib/chains";
@@ -78,6 +79,9 @@ function ClaimForKey({ privateKey }: { privateKey: Hex | null | undefined }) {
           demo_mode: config.useMock,
           // Which currency the payee sees: a proxy for the payout country.
           local_currency: localCurrency ?? "USD",
+          // Person properties for retention: split payees from platforms, and know when each started.
+          $set: { is_payee: true },
+          $set_once: { first_claim_at: new Date().toISOString() },
         });
         // The key stays in the URL: once claimed it's spent (a second claim is refused), and
         // the page needs it to keep showing this payment.
@@ -163,7 +167,12 @@ function ClaimForKey({ privateKey }: { privateKey: Hex | null | undefined }) {
           actionLabel={`Claim ${amountLabel}`}
           hint={!authenticated ? signInHint(provider) : undefined}
           error={error}
-          successAction={<BalanceLink />}
+          successAction={
+            <>
+              <BalanceLink />
+              <InstallPrompt className="mt-4" />
+            </>
+          }
           localAmount={<LocalAmount cents={toCents(claim.amount)} />}
         />
       </div>
@@ -204,7 +213,7 @@ function humanClaimError(err: unknown): string {
 function BalanceLink() {
   return (
     <Button asChild size="lg" variant="secondary" className="h-14 w-full">
-      <Link href="/wallet">See your balance</Link>
+      <Link href="/balance">See your balance</Link>
     </Button>
   );
 }

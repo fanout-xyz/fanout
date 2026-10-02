@@ -200,35 +200,37 @@ export function BatchDetail({ id }: { id: string }) {
           <p className="px-6 py-12 text-center text-muted">Nobody here yet.</p>
         ) : (
           <div className="max-h-[640px] overflow-auto">
-            <table className="w-full min-w-[760px] text-left text-[15px] whitespace-nowrap">
+            <table className="w-full min-w-[640px] text-left text-[15px] whitespace-nowrap">
               <thead className="sticky top-0 z-10 bg-surface text-sm text-muted shadow-[0_1px_0_var(--border)]">
                 <tr>
-                  <th scope="col" className="w-14 px-6 py-3 font-semibold">#</th>
-                  <th scope="col" className="px-6 py-3 font-semibold">Email</th>
-                  <th scope="col" className="px-6 py-3 text-right font-semibold">Amount</th>
-                  <th scope="col" className="px-6 py-3 font-semibold">Note</th>
-                  <th scope="col" className="px-6 py-3 font-semibold">Status</th>
-                  <th scope="col" className="px-6 py-3 text-right font-semibold">Claim link</th>
+                  <th scope="col" className="hidden w-14 px-4 py-3 font-semibold xl:table-cell 2xl:px-6">#</th>
+                  <th scope="col" className="px-4 2xl:px-6 py-3 font-semibold">Email</th>
+                  <th scope="col" className="px-4 2xl:px-6 py-3 text-right font-semibold">Amount</th>
+                  <th scope="col" className="hidden px-4 py-3 font-semibold xl:table-cell 2xl:px-6">Note</th>
+                  <th scope="col" className="px-4 2xl:px-6 py-3 font-semibold">Status</th>
+                  <th scope="col" className="px-4 2xl:px-6 py-3 text-right font-semibold">Claim link</th>
                 </tr>
               </thead>
               <tbody>
                 {visible.map((r) => (
                   <tr key={r.claimSigner} className="border-b border-line transition-colors duration-150 last:border-b-0 hover:bg-card-raised">
-                    <td className="h-13 px-6 text-muted tabular-nums">{r.n}</td>
-                    <td className="max-w-[18rem] truncate px-6" title={r.claim?.email}>
+                    <td className="hidden h-13 px-4 text-muted tabular-nums xl:table-cell 2xl:px-6">{r.n}</td>
+                    <td className="h-13 max-w-[14rem] truncate px-4 xl:max-w-[18rem] 2xl:px-6" title={r.claim?.email}>
                       {r.claim?.email ?? <span className="text-muted">Person {r.n}</span>}
                       {r.claim && r.status === "sent" && (
                         <span className="block text-xs text-muted">{emailedLabel(r.claim)}</span>
                       )}
+                      {/* The Note column is hidden below xl; show the note here instead. */}
+                      {r.claim?.note && <span className="block truncate text-xs text-muted xl:hidden">{r.claim.note}</span>}
                     </td>
-                    <td className="px-6 text-right font-bold tabular-nums">{formatUsd(r.amount)}</td>
-                    <td className="max-w-[12rem] truncate px-6 text-muted" title={r.claim?.note}>
+                    <td className="px-4 2xl:px-6 text-right font-bold tabular-nums">{formatUsd(r.amount)}</td>
+                    <td className="hidden max-w-[12rem] truncate px-4 text-muted xl:table-cell 2xl:px-6" title={r.claim?.note}>
                       {r.claim?.note}
                     </td>
-                    <td className="px-6">
+                    <td className="px-4 2xl:px-6">
                       <StatusChip status={r.status} />
                     </td>
-                    <td className="px-6 py-2">
+                    <td className="px-4 2xl:px-6 py-2">
                       {r.status !== "sent" ? (
                         <span className="block text-right text-sm text-muted">{r.status === "claimed" ? "Used" : "Expired"}</span>
                       ) : r.claim && origin ? (

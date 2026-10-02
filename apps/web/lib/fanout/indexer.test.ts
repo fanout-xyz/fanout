@@ -60,13 +60,13 @@ describe("payee history", () => {
       data: {
         PayeeActivity: [
           { kind: "Sent", amount: "15", counterparty: platform, txHash: tx(2), timestamp: 20 },
-          { kind: "Received", amount: "40", counterparty: platform, txHash: tx(1), timestamp: 10 },
+          { kind: "Received", amount: "40", counterparty: platform, txHash: tx(1), timestamp: 10, claim_id: "0xclaim" },
         ],
       },
     });
     expect(await indexedPayeeHistory(payee)).toEqual([
       { kind: "sent", amount: 15n, counterparty: platform, txHash: tx(2), timestamp: 20_000 },
-      { kind: "received", amount: 40n, counterparty: platform, txHash: tx(1), timestamp: 10_000 },
+      { kind: "received", amount: 40n, counterparty: platform, txHash: tx(1), timestamp: 10_000, payout: true },
     ]);
   });
 

@@ -3,11 +3,11 @@ import { PayeeShell } from "@/components/claim/payee-shell";
 import { MotionRoot } from "@/components/motion-root";
 
 export const metadata: Metadata = {
-  title: "Your balance · Fanout",
+  title: "Verified earnings · Fanout",
   robots: { index: false, follow: false },
 };
 
-export default function WalletLayout({ children }: LayoutProps<"/wallet">) {
+export default function VerifyLayout({ children }: LayoutProps<"/verify">) {
   return (
     <MotionRoot>
       <PayeeShell>{children}</PayeeShell>
