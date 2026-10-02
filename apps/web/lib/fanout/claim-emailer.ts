@@ -11,6 +11,7 @@ import { buildClaimLink, claimSignerFromKey } from "./claim-keys";
 import { engine } from "./mock-engine";
 import { getMockState } from "./mock-store";
 import { need } from "./onchain-client";
+import { walletOrigin } from "@/lib/site-url";
 
 /**
  * Emails payees their claim links through Resend.
@@ -24,7 +25,8 @@ import { need } from "./onchain-client";
  * The link always points at our own origin, and the amount comes from the chain, not the request.
  *
  * Env (server only): RESEND_API_KEY; optional CLAIM_EMAIL_FROM (default "Fanout <pay@fanout.tech>",
- * the domain verified in Resend) and CLAIM_EMAIL_REPLY_TO. Links use NEXT_PUBLIC_SITE_URL (a phone can't open localhost; use a tunnel).
+ * the domain verified in Resend) and CLAIM_EMAIL_REPLY_TO. Links use walletOrigin() (lib/site-url.ts):
+ * wallet.fanout.tech when live; locally localhost, which a phone can't open, so use a tunnel.
  */
 
 export type ClaimEmailRequest = { key: Hex; email: string; note?: string };
@@ -136,7 +138,7 @@ export async function sendClaimEmails(input: {
   const mine = await callerAccounts(input.accessToken, input.mockAccount);
   const signers = input.requests.map((r) => claimSignerFromKey(r.key));
   const claims = await readClaims(signers);
-  const origin = (process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000").replace(/\/$/, "");
+  const origin = walletOrigin();
 
   const failed: ClaimEmailResult["failed"] = [];
   const outgoing: Outgoing[] = [];
@@ -153,6 +155,7 @@ export async function sendClaimEmails(input: {
       platformName: config.platformName,
       amount: claim.amount,
       link,
+      balanceUrl: origin,
       note: req.note,
       expiresAt: claim.expiresAt,
       reminder: input.reminder,
