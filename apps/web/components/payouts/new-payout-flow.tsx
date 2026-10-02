@@ -77,6 +77,9 @@ export function NewPayoutFlow() {
             total_usd: Number(sheet.total) / 1e6,
             demo_mode: config.useMock,
             emailed_count: emailedCount,
+            // Person properties for retention: split platforms from payees, and know when each started.
+            $set: { is_platform: true },
+            $set_once: { first_payout_at: new Date().toISOString() },
           });
           const paid = `Paid ${people} ${people === 1 ? "person" : "people"}`;
           if (emailedCount === people) {
