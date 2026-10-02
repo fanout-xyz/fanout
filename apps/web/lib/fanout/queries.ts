@@ -7,7 +7,8 @@ import { activeChain } from "@/lib/chains";
 import { usePayeeAccount } from "@/lib/payee/payee-account";
 import { hashEmail } from "@/lib/email-hash";
 import { emailClaimLinks } from "./claim-email-client";
-import { generateClaimKey } from "./claim-keys";
+import { claimEmailProofMessage, type ClaimEmailProof } from "./claim-email-proof";
+import { buildClaimLink, generateClaimKey } from "./claim-keys";
 import { saveClaims, type StoredClaim } from "./claim-link-store";
 import { mockRefundUnclaimed } from "./mock-client";
 import { NotFoundError } from "./types";
@@ -196,6 +197,83 @@ export function useSend() {
       } finally {
         unlocked.end();
       }
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: fanoutKeys.payeeBalance(address) });
+      void queryClient.invalidateQueries({ queryKey: fanoutKeys.payeeHistory(address) });
+    },
+  });
+}
+
+/** Asks the relayer for enough MON to cover paying by email (relayer.ts topUpForEmailPayment). */
+async function prepareEmailPaymentFees(address: `0x${string}`, amount: bigint, accessToken: string | null) {
+  let res: Response;
+  try {
+    res = await fetch("/api/relay/fees", {
+      method: "POST",
+      headers: { "content-type": "application/json", ...(accessToken ? { authorization: `Bearer ${accessToken}` } : {}) },
+      body: JSON.stringify({ address, amount: amount.toString() }),
+    });
+  } catch {
+    throw new Error("Can't reach the server. Check your connection and try again.");
+  }
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error ?? "Couldn't prepare the payment. Try again in a moment.");
+  }
+}
+
+/**
+ * Pays someone by email, the way platforms pay out: the money goes into the payout contracts
+ * locked to that email, and they get a claim link. Only someone signed in with that email can
+ * claim it; after the claim window, unclaimed money can be taken back (ClaimEscrow.refund).
+ *
+ * From a passkey account this is one passkey prompt for three transactions (approve, deposit,
+ * create) plus a signature proving the payout is ours, so the server will email the link.
+ * The claim key is saved in this browser first, so the link can be copied if the email fails.
+ */
+export function useSendToEmail() {
+  const auth = useAuth();
+  const signInClient = useFanoutClient();
+  const payee = usePayeeAccount();
+  const address = payee.address;
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ email, amount, note }: { email: string; amount: bigint; note?: string }) => {
+      if (!address) throw new Error("Your account isn't ready. Sign in again.");
+      const key = generateClaimKey();
+      const saved = saveClaims([{ claimSigner: key.claimSigner, privateKey: key.privateKey, email, note: note ?? "" }]);
+      if (!saved) throw new Error("Couldn't save the payment link in this browser, so nothing was sent. Allow site storage and try again.");
+      const accessToken = (await auth.getAccessToken?.()) ?? null;
+      const rows = [{ claimSigner: key.claimSigner, amount, emailHash: hashEmail(email) }];
+
+      let proof: ClaimEmailProof | undefined;
+      if (payee.kind === "passkey") {
+        if (!config.useMock) await prepareEmailPaymentFees(address, amount, accessToken);
+        const unlocked = await payee.unlock();
+        try {
+          const walletClient = createWalletClient({ account: unlocked.account, chain: activeChain, transport: http() });
+          const client = createFanoutClient({ account: unlocked.address, walletClient });
+          await client.deposit(amount);
+          await client.createBatchPayout(rows);
+          const signature = await unlocked.account.signMessage({ message: claimEmailProofMessage(unlocked.address, [key.claimSigner]) });
+          proof = { address: unlocked.address, signature };
+        } finally {
+          unlocked.end();
+        }
+      } else {
+        await signInClient.deposit(amount);
+        await signInClient.createBatchPayout(rows);
+      }
+
+      // The money is out; a failed email is reported, not thrown, so the link can still be shared.
+      const emailed = await emailClaimLinks([{ key: key.privateKey, claimSigner: key.claimSigner, email, note }], {
+        accessToken,
+        account: address,
+        proof,
+      });
+      const link = buildClaimLink(window.location.origin, key.privateKey);
+      return { emailed: !("error" in emailed) && emailed.sent.length === 1, link };
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: fanoutKeys.payeeBalance(address) });

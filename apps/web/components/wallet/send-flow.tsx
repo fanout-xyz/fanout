@@ -13,6 +13,7 @@ import { usePayeeHistory, useSend } from "@/lib/fanout/queries";
 import { formatUsd } from "@/lib/money";
 import type { PaymentRequest } from "@/lib/payment-request";
 import { checkSend, shortAddress } from "@/lib/send-validation";
+import { EmailSendFlow, SendModeSwitch, type SendMode } from "./email-send-flow";
 import { BackButton, groupAddress } from "./wallet-ui";
 
 type Step = { kind: "form" } | { kind: "review"; amount: bigint; to: `0x${string}` } | { kind: "sent"; amount: bigint; to: `0x${string}` };
@@ -38,6 +39,7 @@ export function SendFlow({
   const [amount, setAmount] = useState(request?.amount ? formatUsd(request.amount).replace(/[$,]/g, "") : "");
   const [to, setTo] = useState<string>(request?.to ?? "");
   const note = request?.note;
+  const [mode, setMode] = useState<SendMode>("address");
   // People this account sent to before, newest first: one tap instead of pasting again.
   const recent = useMemo(() => {
     const seen = new Set<string>();
@@ -69,6 +71,8 @@ export function SendFlow({
       },
     });
   }
+
+  if (mode === "email") return <EmailSendFlow balance={balance} onClose={onClose} onMode={setMode} />;
 
   if (step.kind === "sent") {
     return (
@@ -131,6 +135,7 @@ export function SendFlow({
     <form onSubmit={review} noValidate className="flex flex-1 flex-col gap-6 px-5 pt-4 pb-6">
       <BackButton onClick={onClose} label="Back" />
       <h1 className="font-display text-[32px] leading-tight tracking-[-0.02em]">Send money</h1>
+      {!request && <SendModeSwitch mode="address" onChange={setMode} />}
       {note && (
         <p className="-mt-3 rounded-md bg-card-raised px-4 py-3 text-sm">
           <span className="font-semibold">Payment request:</span> {note}
