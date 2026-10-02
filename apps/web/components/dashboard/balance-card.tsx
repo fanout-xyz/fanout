@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useTreasuryBalance } from "@/lib/fanout/queries";
 import { formatUsd } from "@/lib/money";
+import { CrossChainDialog } from "./cross-chain-dialog";
 import { DepositDialog } from "./deposit-dialog";
 
 export function BalanceCard() {
@@ -32,7 +33,10 @@ export function BalanceCard() {
           )}
           <p className="mt-3 text-sm text-muted">Available to pay out</p>
         </div>
-        <DepositDialog />
+        <div className="flex flex-wrap items-center gap-2">
+          <CrossChainDialog />
+          <DepositDialog />
+        </div>
       </div>
     </section>
   );
