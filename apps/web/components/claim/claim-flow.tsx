@@ -10,6 +10,7 @@ import { PetalsMark } from "@/components/brand/petals-mark";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AccountSetup } from "@/components/payee/account-setup";
+import { InstallPrompt } from "@/components/payee/install-prompt";
 import { LocalAmount } from "@/components/payee/local-amount";
 import { useAuth } from "@/lib/auth/provider";
 import { activeChain } from "@/lib/chains";
@@ -166,7 +167,12 @@ function ClaimForKey({ privateKey }: { privateKey: Hex | null | undefined }) {
           actionLabel={`Claim ${amountLabel}`}
           hint={!authenticated ? signInHint(provider) : undefined}
           error={error}
-          successAction={<BalanceLink />}
+          successAction={
+            <>
+              <BalanceLink />
+              <InstallPrompt className="mt-4" />
+            </>
+          }
           localAmount={<LocalAmount cents={toCents(claim.amount)} />}
         />
       </div>

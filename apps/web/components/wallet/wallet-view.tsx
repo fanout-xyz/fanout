@@ -7,6 +7,7 @@ import { LocalAmount } from "@/components/payee/local-amount";
 import { useAuth } from "@/lib/auth/provider";
 import { usePayeeBalance } from "@/lib/fanout/queries";
 import { formatUsd, toCents } from "@/lib/money";
+import { InstallPrompt } from "@/components/payee/install-prompt";
 import { HistoryList } from "./history-list";
 import { PassportCard } from "./passport-card";
 import { PayeeAuthGate } from "./payee-auth-gate";
@@ -69,6 +70,8 @@ function Wallet() {
       </div>
 
       <PassportCard />
+
+      <InstallPrompt />
 
       <HistoryList />
 
