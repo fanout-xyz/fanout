@@ -264,6 +264,7 @@ export function createOnchainClient(ctx: FanoutClientContext): FanoutClient {
           counterparty: zeroAddress,
           txHash: body.txHash,
           timestamp: Date.now(),
+          payout: true,
         });
         return { txHash: body.txHash };
       }),

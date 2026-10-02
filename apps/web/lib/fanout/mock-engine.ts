@@ -118,6 +118,7 @@ export const engine = {
       counterparty: s.batches[ref.batchId].platform,
       txHash,
       timestamp: Date.now(),
+      payout: true,
     });
     return { txHash };
   },
