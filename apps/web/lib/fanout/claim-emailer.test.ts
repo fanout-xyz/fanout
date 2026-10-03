@@ -2,12 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { privateKeyToAccount } from "viem/accounts";
 import { hashEmail } from "@/lib/email-hash";
 import { generateClaimKey } from "./claim-keys";
+import { claimEmailProofMessage } from "./claim-email-proof";
 import { EmailRefused, parseRequests, sendClaimEmails } from "./claim-emailer";
 import { emptyState, engine } from "./mock-engine";
 
 // Runs in mock mode (NEXT_PUBLIC_USE_MOCK unset): claims are read from the in-memory mock state.
 const g = globalThis as typeof globalThis & { __fanoutMock?: ReturnType<typeof emptyState> };
-const platform = privateKeyToAccount("0x" + "11".repeat(32) as `0x${string}`).address;
+const platformAccount = privateKeyToAccount("0x" + "11".repeat(32) as `0x${string}`);
+const platform = platformAccount.address;
 const other = privateKeyToAccount("0x" + "22".repeat(32) as `0x${string}`).address;
 
 let sentBodies: { from: string; to: string[]; html: string; text: string }[][] = [];
@@ -71,6 +73,35 @@ describe("sendClaimEmails", () => {
     const res = await sendClaimEmails({ requests: [{ key: key.privateKey, email: "ana@example.com" }], accessToken: null, mockAccount: platform });
     expect(res.sent).toEqual([key.claimSigner]);
     expect(sentBodies[0][0].from).toBe("Fanout <pay@fanout.tech>");
+  });
+
+  it("emails a payee's own payment when their account signs for it (paying by email)", async () => {
+    const key = pay("ana@example.com");
+    const signature = await platformAccount.signMessage({ message: claimEmailProofMessage(platform, [key.claimSigner]) });
+    // Signed in as someone else entirely: the proof is what shows the payout is theirs.
+    const res = await sendClaimEmails({
+      requests: [{ key: key.privateKey, email: "ana@example.com" }],
+      accessToken: null,
+      mockAccount: other,
+      proof: { address: platform, signature },
+    });
+    expect(res.sent).toEqual([key.claimSigner]);
+  });
+
+  it("refuses a proof signed for different payouts or by another account", async () => {
+    const key = pay("ana@example.com");
+    const otherKey = pay("bo@example.com");
+    const forOther = await platformAccount.signMessage({ message: claimEmailProofMessage(platform, [otherKey.claimSigner]) });
+    await expect(
+      sendClaimEmails({ requests: [{ key: key.privateKey, email: "ana@example.com" }], accessToken: null, mockAccount: other, proof: { address: platform, signature: forOther } }),
+    ).rejects.toThrow(EmailRefused);
+    const byOther = await privateKeyToAccount("0x" + "22".repeat(32) as `0x${string}`).signMessage({
+      message: claimEmailProofMessage(platform, [key.claimSigner]),
+    });
+    await expect(
+      sendClaimEmails({ requests: [{ key: key.privateKey, email: "ana@example.com" }], accessToken: null, mockAccount: other, proof: { address: platform, signature: byOther } }),
+    ).rejects.toThrow(EmailRefused);
+    expect(sentBodies).toEqual([]);
   });
 
   it("refuses when email isn't configured, and rejects malformed requests", async () => {

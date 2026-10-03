@@ -1,5 +1,5 @@
 import "server-only";
-import { createPublicClient, getAddress, http, isAddress, isHex, type Address, type Hex } from "viem";
+import { createPublicClient, getAddress, http, isAddress, isHex, verifyMessage, type Address, type Hex } from "viem";
 import { privyClient, verifiedUser } from "@/lib/auth/privy-server";
 import { activeChain } from "@/lib/chains";
 import { config } from "@/lib/config";
@@ -7,6 +7,7 @@ import { MAX_ROWS } from "@/lib/csv";
 import { claimEmail } from "@/lib/email/claim-email";
 import { hashEmail } from "@/lib/email-hash";
 import { claimEscrowAbi } from "./abis";
+import { claimEmailProofMessage, type ClaimEmailProof } from "./claim-email-proof";
 import { buildClaimLink, claimSignerFromKey } from "./claim-keys";
 import { engine } from "./mock-engine";
 import { getMockState } from "./mock-store";
@@ -130,6 +131,8 @@ export async function sendClaimEmails(input: {
   accessToken: string | null;
   mockAccount?: unknown;
   reminder?: boolean;
+  /** A payee's passkey account paying by email signs for its own payouts (claim-email-proof.ts). */
+  proof?: ClaimEmailProof;
 }): Promise<ClaimEmailResult> {
   if (!emailConfigured()) {
     console.error("[claim-email] RESEND_API_KEY is not set");
@@ -137,6 +140,15 @@ export async function sendClaimEmails(input: {
   }
   const mine = await callerAccounts(input.accessToken, input.mockAccount);
   const signers = input.requests.map((r) => claimSignerFromKey(r.key));
+  if (input.proof) {
+    const valid = await verifyMessage({
+      address: input.proof.address,
+      message: claimEmailProofMessage(input.proof.address, signers),
+      signature: input.proof.signature,
+    }).catch(() => false);
+    if (!valid) throw new EmailRefused("Couldn't confirm these payments are yours.");
+    mine.add(input.proof.address);
+  }
   const claims = await readClaims(signers);
   const origin = walletOrigin();
 

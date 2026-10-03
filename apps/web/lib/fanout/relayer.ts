@@ -4,7 +4,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import { activeChain } from "@/lib/chains";
 import { privyClient, SessionExpired, verifiedUser } from "@/lib/auth/privy-server";
 import { config } from "@/lib/config";
-import { claimEscrowAbi } from "./abis";
+import { claimEscrowAbi, erc20Abi } from "./abis";
 import { recoverClaimSigner, signVerification } from "./claim-keys";
 import { ALL_CONTRACT_ERRORS, friendlyChainError, need } from "./onchain-client";
 import { NotFoundError } from "./types";
@@ -132,4 +132,46 @@ async function topUp(
     console.error("[relay] top-up failed", err instanceof Error ? err.message : err);
     return false;
   }
+}
+
+/**
+ * Paying someone by email takes three transactions from the payee's own account (approve,
+ * deposit, create the payout), about 0.04 MON at testnet prices. Before that, top the account up
+ * so it can afford them. Only for a signed-in user whose account holds the dollars they're sending,
+ * and at most once per account every few minutes, so this can't be used to drain the relayer.
+ */
+const feeTopUps = new Map<string, number>();
+const FEE_COOLDOWN_MS = 5 * 60_000;
+
+export async function topUpForEmailPayment(input: { address: unknown; amount: unknown; accessToken: string | null }): Promise<{ toppedUp: boolean }> {
+  const { address, amount, accessToken } = input;
+  if (typeof address !== "string" || !isAddress(address)) throw new ClaimRefused("Your account isn't ready. Sign in again.");
+  if (typeof amount !== "string" || !/^\d+$/.test(amount) || BigInt(amount) <= 0n) throw new ClaimRefused("Enter an amount to send.");
+  if (!accessToken) throw new ClaimRefused("Sign in to send money.");
+
+  const account = relayerAccount();
+  const privyApi = privyClient();
+  if (!account || !privyApi) {
+    console.error("[relay] RELAYER_PRIVATE_KEY or PRIVY_APP_SECRET is not set");
+    throw new Error("Sending by email isn't available right now. Try again later.");
+  }
+  await verifiedUser(privyApi, accessToken); // throws SessionExpired
+
+  const key = address.toLowerCase();
+  const last = feeTopUps.get(key) ?? 0;
+  if (Date.now() - last < FEE_COOLDOWN_MS) return { toppedUp: false };
+
+  const publicClient = createPublicClient({ chain: activeChain, transport: http() });
+  const token = need(config.stablecoin.address, "NEXT_PUBLIC_AUSD_ADDRESS");
+  const held = await publicClient.readContract({ address: token, abi: erc20Abi, functionName: "balanceOf", args: [address as Address] });
+  if (held < BigInt(amount)) throw new ClaimRefused("You don't have enough for that. Nothing was sent.");
+
+  const target = parseEther(process.env.RELAYER_FEE_TOPUP_MON || "0.06");
+  const have = await publicClient.getBalance({ address: address as Address });
+  if (have >= target) return { toppedUp: false };
+  feeTopUps.set(key, Date.now());
+  const wallet = createWalletClient({ account, chain: activeChain, transport: http() });
+  const hash = await wallet.sendTransaction({ account, chain: activeChain, to: address as Address, value: target - have });
+  await publicClient.waitForTransactionReceipt({ hash });
+  return { toppedUp: true };
 }
