@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LocalAmount } from "@/components/payee/local-amount";
 import { InstallPrompt } from "@/components/payee/install-prompt";
-import { useAuth } from "@/lib/auth/provider";
 import { usePayeeBalance } from "@/lib/fanout/queries";
 import { formatUsd, toCents } from "@/lib/money";
 import { usePayeeAccount } from "@/lib/payee/payee-account";
@@ -37,8 +36,8 @@ export function WalletView({ request, onRequestDone }: { request?: PaymentReques
 }
 
 function Wallet({ request, onRequestDone }: { request?: PaymentRequest; onRequestDone?: () => void }) {
-  const { user, logout } = useAuth();
-  const address = usePayeeAccount().address;
+  const payee = usePayeeAccount();
+  const address = payee.address;
   const balance = usePayeeBalance();
   // A pay link (/pay?to=…) opens straight on a pre-filled send.
   const [view, setView] = useState<View>(request ? { kind: "send", request } : { kind: "home" });
@@ -134,10 +133,10 @@ function Wallet({ request, onRequestDone }: { request?: PaymentRequest; onReques
 
       <p className="text-center text-sm text-muted">Cash-out to local banks is on the roadmap.</p>
       <p className="-mt-4 text-center text-sm text-muted">
-        Signed in as {user?.email ?? "you"}.{" "}
+        {payee.signedIn ? "Signed in" : "Opened with your passkey"} as {payee.email ?? "you"}.{" "}
         <button
           type="button"
-          onClick={() => void logout()}
+          onClick={() => void payee.signOut()}
           className="rounded-sm font-semibold text-foreground underline underline-offset-4 outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           Sign out

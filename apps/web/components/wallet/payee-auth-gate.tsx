@@ -7,12 +7,19 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AccountSetup } from "@/components/payee/account-setup";
 import { useAuth } from "@/lib/auth/provider";
+import { useAppUnlocked } from "@/lib/payee/app-lock";
 import { usePayeeAccount } from "@/lib/payee/payee-account";
+import { AppLockScreen } from "./app-lock-screen";
 
-/** Payee pages: show children only once signed in with an account ready. */
+/**
+ * Payee pages: show children only once there's an account ready and it's unlocked on this visit.
+ * A passkey account remembered on this device opens with the passkey alone, even after the email
+ * sign-in session has run out.
+ */
 export function PayeeAuthGate({ children }: { children: ReactNode }) {
   const { ready, authenticated, login } = useAuth();
   const payee = usePayeeAccount();
+  const unlocked = useAppUnlocked(payee.email);
 
   if (!ready) {
     return (
@@ -22,7 +29,7 @@ export function PayeeAuthGate({ children }: { children: ReactNode }) {
       </div>
     );
   }
-  if (!authenticated) {
+  if (!authenticated && payee.kind !== "passkey") {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-4 px-5 pb-10 text-center">
         <PetalsMark size={48} color="var(--primary)" cutColor="var(--bg)" />
@@ -43,5 +50,8 @@ export function PayeeAuthGate({ children }: { children: ReactNode }) {
       </p>
     );
   }
+  // A passkey account opens behind Face ID / fingerprint / screen lock, like a bank app. The email
+  // fallback has no passkey to ask for, so it opens as before.
+  if (payee.kind === "passkey" && !unlocked) return <AppLockScreen />;
   return <>{children}</>;
 }

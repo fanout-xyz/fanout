@@ -4,7 +4,7 @@ import { createSecp256k1SigningSession, getEvmAddress, getPasskeyPrfOutput, isMe
 import { toViemAccount } from "@category-labs/mera/viem";
 import { getAddress, hexToBytes, keccak256, sha256, toBytes, type Address, type Hex } from "viem";
 import { linkMessage, statementMessage, type Passport, type PassportStatement } from "./passport";
-import { loadRecord, PasskeyCancelled, PasskeyUnsupported, unlockPasskeyAccount } from "./passkey-account";
+import { loadRecord, PasskeyCancelled, PasskeyUnsupported, passkeyRpId, unlockPasskeyAccount } from "./passkey-account";
 
 /**
  * The passport key: a second key from the same passkey, through its own PRF salt. It never holds
@@ -46,7 +46,7 @@ export async function signPassport(
   let prf: Uint8Array;
   try {
     const got = await getPasskeyPrfOutput({
-      rpId: window.location.hostname,
+      rpId: passkeyRpId(window.location.hostname),
       credential: { credentialId: record.credentialId, transports: record.transports },
       prfSalt: PASSPORT_SALT,
     });
