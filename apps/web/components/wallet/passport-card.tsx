@@ -6,7 +6,6 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Spinner } from "@/components/tx-progress";
 import { Button } from "@/components/ui/button";
-import { useAuth } from "@/lib/auth/provider";
 import { usePayeeHistory } from "@/lib/fanout/queries";
 import { usePayeeAccount } from "@/lib/payee/payee-account";
 import { PasskeyCancelled } from "@/lib/payee/passkey-account";
@@ -21,7 +20,6 @@ const SPANS = [1, 3, 6] as const;
  * of income ("at least $500 a month for 3 months, from 2 platforms") someone else can check.
  */
 export function PassportCard() {
-  const { user } = useAuth();
   const payee = usePayeeAccount();
   const history = usePayeeHistory();
   const [span, setSpan] = useState<(typeof SPANS)[number]>(1);
@@ -37,10 +35,10 @@ export function PassportCard() {
   const hasPayouts = history.data.some((i) => i.kind === "received" && i.payout);
 
   async function create() {
-    if (!claim || !payee.address || !user?.email) return;
+    if (!claim || !payee.address || !payee.email) return;
     setBusy(true);
     try {
-      const passport = await signPassport(user.email, { account: payee.address, months, ...claim });
+      const passport = await signPassport(payee.email, { account: payee.address, months, ...claim });
       setLink(passportUrl(window.location.origin, passport));
       posthog.capture("passport_created", { months: months.length, min_monthly_usd: claim.minMonthlyUsd, platforms: claim.platforms });
     } catch (err) {

@@ -7,8 +7,10 @@ import { Spinner } from "@/components/tx-progress";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useAuth } from "@/lib/auth/provider";
 import { useSendToEmail } from "@/lib/fanout/queries";
 import { formatUsd, parseUsd } from "@/lib/money";
+import { usePayeeAccount } from "@/lib/payee/payee-account";
 import { cleanRequestNote } from "@/lib/payment-request";
 import { cn } from "@/lib/utils";
 import { BackButton, CopyButton } from "./wallet-ui";
@@ -51,6 +53,8 @@ type Step =
  */
 export function EmailSendFlow({ balance, onClose, onMode }: { balance: bigint; onClose: () => void; onMode: (mode: SendMode) => void }) {
   const send = useSendToEmail();
+  const { login } = useAuth();
+  const payee = usePayeeAccount();
   const [email, setEmail] = useState("");
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
@@ -134,16 +138,28 @@ export function EmailSendFlow({ balance, onClose, onMode }: { balance: bigint; o
             {send.error.message}
           </p>
         )}
+        {!payee.signedIn && (
+          // Opened with the passkey alone: the server only sends payment emails for a signed-in sender.
+          <p className="rounded-md bg-card-raised px-4 py-3 text-sm">
+            To pay by email, sign in with {payee.email ?? "your email"} first. It only takes a code from your inbox.
+          </p>
+        )}
         <div className="mt-auto">
-          <Button size="lg" className="h-14 w-full" onClick={confirm} disabled={send.isPending} aria-busy={send.isPending}>
-            {send.isPending ? (
-              <>
-                <Spinner className="size-5" /> Sending…
-              </>
-            ) : (
-              `Send ${formatUsd(step.amount)}`
-            )}
-          </Button>
+          {payee.signedIn ? (
+            <Button size="lg" className="h-14 w-full" onClick={confirm} disabled={send.isPending} aria-busy={send.isPending}>
+              {send.isPending ? (
+                <>
+                  <Spinner className="size-5" /> Sending…
+                </>
+              ) : (
+                `Send ${formatUsd(step.amount)}`
+              )}
+            </Button>
+          ) : (
+            <Button size="lg" className="h-14 w-full" onClick={login}>
+              Sign in to send
+            </Button>
+          )}
           {send.isPending && <p className="mt-3 text-center text-sm text-muted">This takes up to half a minute. Keep this page open.</p>}
         </div>
       </div>
