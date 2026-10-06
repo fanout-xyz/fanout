@@ -65,6 +65,21 @@ describe("mock engine", () => {
     expect(() => engine.refundUnclaimed(s, friend, batchId)).toThrow(/Only the sender/);
   });
 
+  it("simulates claims for the sender only, never more than are waiting", () => {
+    engine.deposit(s, platform, 150_000_000n);
+    const rows = Array.from({ length: 150 }, () => ({ claimSigner: generateClaimKey().claimSigner, amount: 1_000_000n }));
+    const { batchId } = engine.createBatchPayout(s, platform, rows);
+    expect(() => engine.simulateClaims(s, friend, batchId, 5)).toThrow(/Only the sender/);
+    expect(() => engine.simulateClaims(s, platform, batchId, 0)).toThrow(/at least one/);
+
+    expect(engine.simulateClaims(s, platform, batchId, 40)).toBe(40);
+    expect(engine.getBatch(s, batchId).rows.filter((r) => r.status === "claimed")).toHaveLength(40);
+    expect(engine.simulateClaims(s, platform, batchId, 500)).toBe(110);
+    expect(engine.simulateClaims(s, platform, batchId, 1)).toBe(0);
+    expect(engine.listBatches(s, platform)[0]).toMatchObject({ rowCount: 150, claimedCount: 150 });
+    expect(engine.getPayeeBalance(s, rows[0].claimSigner)).toBe(1_000_000n);
+  });
+
   it("requires sign-in for writes", () => {
     expect(() => engine.deposit(s, undefined, 1n)).toThrow(/Sign in/);
   });

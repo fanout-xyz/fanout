@@ -198,8 +198,31 @@ export const engine = {
     }
     return null;
   },
+
+  /**
+   * Demo: marks up to `count` waiting payments as claimed, picked at random, as if payees had opened
+   * their links. The money goes to each claim's own address (there's no real payee). Sender only.
+   */
+  simulateClaims(s: MockState, account: Address | undefined, batchId: string, count: number) {
+    const me = requireAccount(account);
+    const b = s.batches[batchId];
+    if (!b) throw new NotFoundError(`Payout #${batchId} doesn't exist.`);
+    if (b.platform !== me) throw new Error("Only the sender can simulate claims.");
+    if (!Number.isInteger(count) || count < 1) throw new Error("Pick at least one claim.");
+    const waiting = b.rows.filter((r) => r.status === "sent");
+    for (let i = waiting.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [waiting[i], waiting[j]] = [waiting[j], waiting[i]];
+    }
+    const picked = waiting.slice(0, count);
+    for (const row of picked) {
+      row.status = "claimed";
+      s.balances[row.claimSigner] = (s.balances[row.claimSigner] ?? 0n) + row.amount;
+    }
+    return picked.length;
+  },
 };
 
 /** Methods that change state (the store saves after these). */
-export const MUTATING = new Set(["deposit", "createBatchPayout", "claim", "send", "receiveAsUsdc", "refundUnclaimed"]);
+export const MUTATING = new Set(["deposit", "createBatchPayout", "claim", "send", "receiveAsUsdc", "refundUnclaimed", "simulateClaims"]);
 export type EngineMethod = keyof typeof engine;
