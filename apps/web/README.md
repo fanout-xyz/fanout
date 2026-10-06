@@ -1,5 +1,25 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## Trying a full 150-person payout
+
+The New payout page takes up to 150 rows, all paid in one transaction. To make a test file:
+
+```bash
+# 150 plus-addressed copies of your own address: you+1@yourdomain.com ... you+150@yourdomain.com
+pnpm --filter web demo-csv --to you@yourdomain.com
+
+# or your own list (one address per line, or a CSV with the email first), 40 rows of $2.50
+pnpm --filter web demo-csv --list team-emails.txt --rows 40 --amount 2.50
+```
+
+It writes `payout-<rows>.csv` where you ran it (`--out` to change that, `--out -` for stdout), with random amounts from $1.00 to $3.00 unless you pass `--amount` or `--min`/`--max`. All options are in the header of `scripts/demo-payout-csv.ts`.
+
+Every row gets a claim email when the payout is sent, so only use inboxes you control. The script refuses made-up and reserved domains (example.com, `*.test`, ...) and domains without mail servers, so nothing bounces. Plus addresses (`you+1@...`) arrive in your own inbox with Gmail, Google Workspace, Fastmail, iCloud and Outlook; check your provider first. Each plus address is its own sign-in, so you claim each payment by signing in with that exact address.
+
+Emails go out through Resend in batches of 100, so a full payout is two API calls. Resend's free plan sends at most 100 emails a day; a 150-person payout needs a paid plan, or you can copy the remaining links from the payout page.
+
+The payout page shows "N of 150 claimed" with the dollars claimed so far. It refreshes every 2.5 seconds for the first two minutes after opening, then every 5 seconds, and stops once everyone has claimed or been returned. In demo mode (`NEXT_PUBLIC_USE_MOCK=true`), **Simulate people claiming** at the bottom of the payout page claims a few payments every second or so, so you can watch it fill up.
+
 ## Getting Started
 
 First, run the development server:
