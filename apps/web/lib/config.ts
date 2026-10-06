@@ -50,6 +50,9 @@ export const config = {
       ? ""
       : process.env.NEXT_PUBLIC_INDEXER_URL || "https://indexer.dev.hyperindex.xyz/e70db85/v1/graphql",
 
+  // "Get test dollars" on the dashboard (lib/fanout/test-dollars.ts). Onchain it only shows on Monad testnet; "off" hides it.
+  testDollars: process.env.NEXT_PUBLIC_TEST_DOLLARS !== "off",
+
   // Display name shown to payees ("You've been paid $X by <Platform>").
   platformName: process.env.NEXT_PUBLIC_PLATFORM_NAME || "Demo Creator Platform",
 } as const;

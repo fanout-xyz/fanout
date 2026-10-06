@@ -127,3 +127,32 @@ export const eip712DomainAbi = [
     ],
   },
 ] as const;
+
+/**
+ * Agora's AUSD faucet on Monad testnet (a proxy; read from its bytecode and checked on a fork).
+ * requestFunds(to) sends faucetDripAmount to `to`, not to the caller. It refuses a recipient already
+ * holding maxAmountToOwn or more (MaxAllowedExceeded), and any request, from anyone, within
+ * maxDripFrequency seconds of the last one (MaxFrequencyExceeded).
+ */
+export const agoraFaucetAbi = [
+  { type: "function", name: "requestFunds", stateMutability: "nonpayable", inputs: [{ name: "to", type: "address" }], outputs: [] },
+  { type: "function", name: "faucetDripAmount", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
+  { type: "function", name: "maxAmountToOwn", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
+  { type: "function", name: "maxDripFrequency", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
+  { type: "function", name: "lastDripTimestamp", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
+  { type: "error", name: "MaxFrequencyExceeded", inputs: [] },
+  { type: "error", name: "MaxAllowedExceeded", inputs: [] },
+] as const;
+
+/** ERC-20 Transfer, to read how much a faucet request actually sent. */
+export const transferEventAbi = [
+  {
+    type: "event",
+    name: "Transfer",
+    inputs: [
+      { name: "from", type: "address", indexed: true },
+      { name: "to", type: "address", indexed: true },
+      { name: "value", type: "uint256", indexed: false },
+    ],
+  },
+] as const;

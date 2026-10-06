@@ -49,7 +49,7 @@ function serverKey(name: "RELAYER_PRIVATE_KEY" | "VERIFIER_PRIVATE_KEY"): Hex | 
   return key && /^0x[0-9a-fA-F]{64}$/.test(key) ? (key as Hex) : null;
 }
 
-function relayerAccount() {
+export function relayerAccount() {
   const key = serverKey("RELAYER_PRIVATE_KEY");
   return key ? privateKeyToAccount(key) : null;
 }

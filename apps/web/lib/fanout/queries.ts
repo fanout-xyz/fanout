@@ -13,6 +13,7 @@ import { claimEmailProofMessage, type ClaimEmailProof } from "./claim-email-proo
 import { buildClaimLink, generateClaimKey } from "./claim-keys";
 import { saveClaims, type StoredClaim } from "./claim-link-store";
 import { mockRefundUnclaimed, mockSimulateClaims } from "./mock-client";
+import { rememberTestDollarsRetryAt, TEST_DOLLARS_COOLDOWN_MS, TestDollarsCooldown } from "./test-dollars";
 import { NotFoundError } from "./types";
 import { config, usdcSettleEnabled } from "@/lib/config";
 import { erc20Abi } from "./abis";
@@ -81,7 +82,28 @@ export function useDeposit() {
   });
 }
 
-export type NewPayoutRow = { email: string; amount: bigint; note: string };
+/**
+ * Free test dollars for the signed-in account (FanoutClient.getTestDollars). Remembers in this browser
+ * when the account can ask again, so the button can say so after a reload; the server enforces it.
+ */
+export function useTestDollars() {
+  const client = useFanoutClient();
+  const address = useAuth().user?.address;
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => client.getTestDollars(),
+    onSuccess: () => {
+      rememberTestDollarsRetryAt(address, Date.now() + TEST_DOLLARS_COOLDOWN_MS);
+      void queryClient.invalidateQueries({ queryKey: fanoutKeys.treasury(address) });
+      void queryClient.invalidateQueries({ queryKey: fanoutKeys.accountFunds(address) });
+    },
+    onError: (err) => {
+      if (err instanceof TestDollarsCooldown) rememberTestDollarsRetryAt(address, err.retryAt);
+    },
+  });
+}
+
+export type NewPayoutRow ={ email: string; amount: bigint; note: string };
 
 /**
  * Creates a batch: one fresh claim key per row (only the address goes onchain),

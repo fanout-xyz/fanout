@@ -60,6 +60,11 @@ export type GaslessSendResult = TxResult & {
   gasless: boolean;
 };
 
+export type TestDollarsResult = TxResult & {
+  /** Test dollars received, in AUSD base units. */
+  amount: bigint;
+};
+
 /** Thrown when a batch or claim doesn't exist. Not worth retrying. */
 export class NotFoundError extends Error {
   override name = "NotFoundError";
