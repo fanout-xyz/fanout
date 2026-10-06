@@ -46,6 +46,21 @@ function pushHistory(s: MockState, address: Address, item: PayeeHistoryItem) {
   (s.history[address] ??= []).unshift(item);
 }
 
+/** AUSD moving between payees, like the token's transfer. */
+function transfer(s: MockState, me: Address, to: Address, amount: bigint) {
+  if (!isAddress(to)) throw new Error("That address isn't valid.");
+  if (amount <= 0n) throw new Error("Amount must be more than $0.");
+  if (amount > (s.balances[me] ?? 0n)) throw new Error("Not enough balance.");
+  const txHash = fakeTxHash();
+  const dest = key(to);
+  s.balances[me] -= amount;
+  s.balances[dest] = (s.balances[dest] ?? 0n) + amount;
+  const now = Date.now();
+  pushHistory(s, me, { kind: "sent", amount, counterparty: dest, txHash, timestamp: now });
+  pushHistory(s, dest, { kind: "received", amount, counterparty: me, txHash, timestamp: now });
+  return { txHash };
+}
+
 export const engine = {
   getTreasuryBalance(s: MockState, platform: Address): bigint {
     return s.treasury[key(platform)] ?? 0n;
@@ -133,18 +148,17 @@ export const engine = {
   },
 
   send(s: MockState, account: Address | undefined, to: Address, amount: bigint) {
+    return transfer(s, requireAccount(account), to, amount);
+  },
+
+  /**
+   * Same rules as AUSD's transferWithAuthorization submitted by our relayer: the payee's own money,
+   * to the address they signed for, and the relayer (not the payee) pays the fee.
+   */
+  sendGasless(s: MockState, account: Address | undefined, to: Address, amount: bigint) {
     const me = requireAccount(account);
-    if (!isAddress(to)) throw new Error("That address isn't valid.");
-    if (amount <= 0n) throw new Error("Amount must be more than $0.");
-    if (amount > (s.balances[me] ?? 0n)) throw new Error("Not enough balance.");
-    const txHash = fakeTxHash();
-    const dest = key(to);
-    s.balances[me] -= amount;
-    s.balances[dest] = (s.balances[dest] ?? 0n) + amount;
-    const now = Date.now();
-    pushHistory(s, me, { kind: "sent", amount, counterparty: dest, txHash, timestamp: now });
-    pushHistory(s, dest, { kind: "received", amount, counterparty: me, txHash, timestamp: now });
-    return { txHash };
+    if (isAddress(to) && key(to) === me) throw new Error("That's your own address. Nothing was sent.");
+    return { ...transfer(s, me, to, amount), gasless: true };
   },
 
   /** Same rules as SettleToUsdc: the payee's own dollars, swapped 1:1, paid back to them. */
@@ -201,5 +215,5 @@ export const engine = {
 };
 
 /** Methods that change state (the store saves after these). */
-export const MUTATING = new Set(["deposit", "createBatchPayout", "claim", "send", "receiveAsUsdc", "refundUnclaimed"]);
+export const MUTATING = new Set(["deposit", "createBatchPayout", "claim", "send", "sendGasless", "receiveAsUsdc", "refundUnclaimed"]);
 export type EngineMethod = keyof typeof engine;

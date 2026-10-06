@@ -55,6 +55,11 @@ export type UsdcSettleResult = TxResult & {
   amountOut: bigint;
 };
 
+export type GaslessSendResult = TxResult & {
+  /** True when our relayer paid the fee; false when it went from the payee's own account instead. */
+  gasless: boolean;
+};
+
 /** Thrown when a batch or claim doesn't exist. Not worth retrying. */
 export class NotFoundError extends Error {
   override name = "NotFoundError";

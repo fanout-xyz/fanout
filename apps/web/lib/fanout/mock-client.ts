@@ -45,6 +45,7 @@ export function createMockClient(ctx: FanoutClientContext): FanoutClient {
     claim: (claimSigner, recipient, signature) => rpc("claim", a, [claimSigner, recipient, signature]),
     getPayeeBalance: (address) => rpc("getPayeeBalance", a, [address]),
     send: (to, amount) => rpc("send", a, [to, amount]),
+    sendGasless: (to, amount) => rpc("sendGasless", a, [to, amount]),
     receiveAsUsdc: (amount) => rpc("receiveAsUsdc", a, [amount]),
     getPayeeUsdcBalance: (address) => rpc("getPayeeUsdcBalance", a, [address]),
     listBatches: (platform) => rpc("listBatches", a, [platform]),

@@ -16,7 +16,10 @@ import { checkSend, shortAddress } from "@/lib/send-validation";
 import { EmailSendFlow, SendModeSwitch, type SendMode } from "./email-send-flow";
 import { BackButton, groupAddress } from "./wallet-ui";
 
-type Step = { kind: "form" } | { kind: "review"; amount: bigint; to: `0x${string}` } | { kind: "sent"; amount: bigint; to: `0x${string}` };
+type Step =
+  | { kind: "form" }
+  | { kind: "review"; amount: bigint; to: `0x${string}` }
+  | { kind: "sent"; amount: bigint; to: `0x${string}`; noFee: boolean };
 
 /**
  * Send dollars to an address. The address is the one thing shown as typed (guidelines §8).
@@ -63,10 +66,11 @@ export function SendFlow({
   function confirm() {
     if (step.kind !== "review") return;
     send.mutate({ to: step.to, amount: step.amount }, {
-      onSuccess: () => {
-        setStep({ ...step, kind: "sent" });
+      onSuccess: ({ gasless }) => {
+        setStep({ ...step, kind: "sent", noFee: gasless });
         posthog.capture("wallet_transfer_completed", {
           amount_usd: Number(step.amount) / 1e6,
+          gasless,
         });
       },
     });
@@ -80,6 +84,7 @@ export function SendFlow({
         <PetalsMark size={56} color="var(--primary-solid)" cutColor="var(--bg)" fanOut />
         <h1 className="mt-4 font-display text-[40px] leading-none tracking-[-0.03em] tabular-nums">Sent {formatUsd(step.amount)}</h1>
         <p className="text-muted">to {shortAddress(step.to)}</p>
+        {step.noFee && <p className="text-sm text-muted">No fee.</p>}
         <Button size="lg" className="mt-8 h-14 w-full" onClick={onClose}>
           Done
         </Button>
@@ -234,7 +239,11 @@ export function SendFlow({
 }
 
 function humanSendError(err: Error): string {
-  if (/not enough/i.test(err.message)) return "You don't have enough for that. Nothing was sent.";
+  if (/not enough|don't have enough/i.test(err.message)) return "You don't have enough for that. Nothing was sent.";
+  if (/already sent/i.test(err.message)) return "This was already sent. Check your activity before trying again.";
+  if (/too long/i.test(err.message)) return "That took too long. Nothing was sent. Try again.";
+  // Without a session the send goes from the account itself, which can't cover the fee. Signing in removes it.
+  if (/network fees/i.test(err.message)) return "Your session ended. Sign in again, then send.";
   if (/reach the server|connection/i.test(err.message)) return "You seem to be offline. Nothing was sent. Try again.";
   if (/sign in/i.test(err.message)) return "Your session ended. Sign in again, then send.";
   return "Something went wrong and nothing was sent. Try again in a moment.";

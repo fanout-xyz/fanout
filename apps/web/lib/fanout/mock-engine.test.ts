@@ -88,6 +88,31 @@ describe("mock engine", () => {
     expect(engine.getPayeeUsdcBalance(s, friend)).toBe(0n);
   });
 
+  it("sends without a fee: moves the payee's dollars and records both sides", async () => {
+    engine.deposit(s, platform, 10_000_000n);
+    const a = generateClaimKey();
+    engine.createBatchPayout(s, platform, [{ claimSigner: a.claimSigner, amount: 5_000_000n }]);
+    await engine.claim(s, a.claimSigner, payee, await sign(a.privateKey, payee));
+
+    const result = engine.sendGasless(s, payee, friend, 2_000_000n);
+    expect(result).toMatchObject({ gasless: true, txHash: expect.stringMatching(/^0x[0-9a-f]{64}$/) });
+    expect(engine.getPayeeBalance(s, payee)).toBe(3_000_000n);
+    expect(engine.getPayeeBalance(s, friend)).toBe(2_000_000n);
+    expect(engine.getPayeeHistory(s, payee)[0]).toMatchObject({ kind: "sent", amount: 2_000_000n, counterparty: friend, txHash: result.txHash });
+    expect(engine.getPayeeHistory(s, friend)[0]).toMatchObject({ kind: "received", amount: 2_000_000n, counterparty: payee });
+  });
+
+  it("refuses fee-free sends the token would refuse, moving nothing", () => {
+    s.balances[payee] = 1_000_000n;
+    expect(() => engine.sendGasless(s, payee, friend, 2_000_000n)).toThrow(/Not enough/);
+    expect(() => engine.sendGasless(s, payee, friend, 0n)).toThrow(/more than/);
+    expect(() => engine.sendGasless(s, payee, "0x1234" as `0x${string}`, 1n)).toThrow(/isn't valid/);
+    expect(() => engine.sendGasless(s, payee, payee, 1n)).toThrow(/your own address/);
+    expect(() => engine.sendGasless(s, undefined, friend, 1n)).toThrow(/Sign in/);
+    expect(engine.getPayeeBalance(s, payee)).toBe(1_000_000n);
+    expect(engine.getPayeeHistory(s, payee)).toEqual([]);
+  });
+
   it("loads state saved before USDC balances existed", () => {
     const old: Partial<MockState> = { ...emptyState(), balances: { [payee]: 1_000_000n } };
     delete old.usdcBalances;
