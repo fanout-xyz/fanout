@@ -1,4 +1,14 @@
-import { encodeAbiParameters, keccak256, toHex, type Address, type Hex, type LocalAccount, type WalletClient } from "viem";
+import { encodeAbiParameters, keccak256, type Address, type Hex, type LocalAccount, type WalletClient } from "viem";
+import {
+  AUTHORIZATION_WINDOW_SECONDS,
+  authorizationTypedData,
+  randomNonce,
+  signAuthorization,
+  type Authorization,
+  type TokenDomain,
+} from "./erc3009.ts";
+
+export type { TokenDomain };
 
 /**
  * Taking dollars as USDC (smart-contract/contracts/SettleToUsdc.sol).
@@ -12,8 +22,8 @@ import { encodeAbiParameters, keccak256, toHex, type Address, type Hex, type Loc
  *   nonce = keccak256(abi.encode(address settleContract, bytes32 salt, uint256 minOut))
  *
  * so a submitter can't lower minOut without invalidating the signature. AUSD itself marks the nonce
- * used, so the same signature can't be submitted twice. No imports from "@/": the contract tests
- * sign with this file too.
+ * used, so the same signature can't be submitted twice. The signing itself is in erc3009.ts. No
+ * imports from "@/": the contract tests sign with this file too.
  */
 
 export type SettleAuthorization = {
@@ -25,22 +35,8 @@ export type SettleAuthorization = {
   minOut: bigint;
 };
 
-/** AUSD's EIP-712 domain. Agora AUSD reports name "Agora Dollar", version "1" (eip712Domain()). */
-export type TokenDomain = { name: string; version: string; chainId: number; verifyingContract: Address };
-
-export const receiveWithAuthorizationTypes = {
-  ReceiveWithAuthorization: [
-    { name: "from", type: "address" },
-    { name: "to", type: "address" },
-    { name: "value", type: "uint256" },
-    { name: "validAfter", type: "uint256" },
-    { name: "validBefore", type: "uint256" },
-    { name: "nonce", type: "bytes32" },
-  ],
-} as const;
-
 /** How long a signed authorization stays valid: long enough for the relayer, short enough not to linger. */
-export const SETTLE_WINDOW_SECONDS = 10n * 60n;
+export const SETTLE_WINDOW_SECONDS = AUTHORIZATION_WINDOW_SECONDS;
 
 /** Accept at most this much below the quote (basis points), in case the pair's price moves between quote and swap. */
 export const SETTLE_SLIPPAGE_BPS = 10n;
@@ -49,29 +45,20 @@ export function settleNonce(settleContract: Address, salt: Hex, minOut: bigint):
   return keccak256(encodeAbiParameters([{ type: "address" }, { type: "bytes32" }, { type: "uint256" }], [settleContract, salt, minOut]));
 }
 
-export function randomSalt(): Hex {
-  return toHex(crypto.getRandomValues(new Uint8Array(32)));
-}
+export const randomSalt = randomNonce;
 
 /** The least output to accept for a quote. */
 export function minOutFor(quote: bigint): bigint {
   return (quote * (10_000n - SETTLE_SLIPPAGE_BPS)) / 10_000n;
 }
 
+function toAuthorization(settleContract: Address, auth: SettleAuthorization): Authorization {
+  const { from, value, validAfter, validBefore } = auth;
+  return { from, to: settleContract, value, validAfter, validBefore, nonce: settleNonce(settleContract, auth.salt, auth.minOut) };
+}
+
 export function settleTypedData(domain: TokenDomain, settleContract: Address, auth: SettleAuthorization) {
-  return {
-    domain,
-    types: receiveWithAuthorizationTypes,
-    primaryType: "ReceiveWithAuthorization" as const,
-    message: {
-      from: auth.from,
-      to: settleContract,
-      value: auth.value,
-      validAfter: auth.validAfter,
-      validBefore: auth.validBefore,
-      nonce: settleNonce(settleContract, auth.salt, auth.minOut),
-    },
-  };
+  return authorizationTypedData("ReceiveWithAuthorization", domain, toAuthorization(settleContract, auth));
 }
 
 /** Signs with a local account (passkey account, tests) or a wallet client (sign-in account). */
@@ -81,8 +68,5 @@ export function signSettle(
   settleContract: Address,
   auth: SettleAuthorization,
 ): Promise<Hex> {
-  const typedData = settleTypedData(domain, settleContract, auth);
-  if ("type" in signer && signer.type === "local") return (signer as LocalAccount).signTypedData(typedData);
-  const wc = signer as WalletClient;
-  return wc.signTypedData({ ...typedData, account: wc.account ?? auth.from });
+  return signAuthorization(signer, "ReceiveWithAuthorization", domain, toAuthorization(settleContract, auth));
 }

@@ -213,21 +213,24 @@ export function usePayeeHistory() {
 }
 
 /**
- * Sends from the payee's account. A passkey account is opened for this one send (Face ID / Touch
- * ID) and its key is zeroed right after; the email-account fallback signs with the sign-in wallet.
+ * Sends from the payee's account. The payee signs one authorization and our relayer submits it and
+ * pays the fee, so the account needs no MON (sendGasless; it sends the old way if the relayer isn't
+ * set up). A passkey account is opened for this one signature (Face ID / Touch ID) and its key is
+ * zeroed right after; the email-account fallback signs with the sign-in wallet.
  */
 export function useSend() {
+  const auth = useAuth();
   const signInClient = useFanoutClient();
   const payee = usePayeeAccount();
   const address = payee.address;
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({ to, amount }: { to: `0x${string}`; amount: bigint }) => {
-      if (payee.kind !== "passkey") return signInClient.send(to, amount);
+      if (payee.kind !== "passkey") return signInClient.sendGasless(to, amount);
       const unlocked = await payee.unlock();
       try {
         const walletClient = createWalletClient({ account: unlocked.account, chain: activeChain, transport: http() });
-        return await createFanoutClient({ account: unlocked.address, walletClient }).send(to, amount);
+        return await createFanoutClient({ account: unlocked.address, walletClient, getAccessToken: auth.getAccessToken }).sendGasless(to, amount);
       } finally {
         unlocked.end();
       }

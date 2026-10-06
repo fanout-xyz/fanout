@@ -74,6 +74,41 @@ export const agoraPairAbi = [
   { type: "error", name: "PriceExpired", inputs: [] },
 ] as const;
 
+/**
+ * AUSD's ERC-3009 transferWithAuthorization (the `bytes signature` overload, which Agora AUSD
+ * exposes next to the v/r/s one), plus the errors it reverts with so a failed send decodes by name.
+ */
+export const transferWithAuthorizationAbi = [
+  {
+    type: "function",
+    name: "transferWithAuthorization",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "from", type: "address" },
+      { name: "to", type: "address" },
+      { name: "value", type: "uint256" },
+      { name: "validAfter", type: "uint256" },
+      { name: "validBefore", type: "uint256" },
+      { name: "nonce", type: "bytes32" },
+      { name: "signature", type: "bytes" },
+    ],
+    outputs: [],
+  },
+  { type: "error", name: "ExpiredAuthorization", inputs: [] },
+  { type: "error", name: "InvalidAuthorization", inputs: [] },
+  { type: "error", name: "UsedOrCanceledAuthorization", inputs: [] },
+  { type: "error", name: "InvalidSignature", inputs: [] },
+  {
+    type: "error",
+    name: "ERC20InsufficientBalance",
+    inputs: [
+      { name: "sender", type: "address" },
+      { name: "balance", type: "uint256" },
+      { name: "needed", type: "uint256" },
+    ],
+  },
+] as const;
+
 /** ERC-5267 EIP-712 domain, e.g. Agora AUSD's ("Agora Dollar", version "1"). */
 export const eip712DomainAbi = [
   {

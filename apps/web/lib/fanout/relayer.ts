@@ -1,10 +1,11 @@
 import "server-only";
-import { createPublicClient, createWalletClient, http, isAddress, isHex, parseEther, parseEventLogs, type Address, type Hex } from "viem";
+import { createPublicClient, createWalletClient, http, isAddress, isHex, parseEther, parseEventLogs, zeroAddress, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { activeChain } from "@/lib/chains";
 import { privyClient, SessionExpired, verifiedUser } from "@/lib/auth/privy-server";
 import { config } from "@/lib/config";
-import { agoraPairAbi, claimEscrowAbi, erc20Abi, settleToUsdcAbi } from "./abis";
+import { agoraPairAbi, claimEscrowAbi, erc20Abi, settleToUsdcAbi, transferWithAuthorizationAbi } from "./abis";
+import { AUTHORIZATION_WINDOW_SECONDS } from "./erc3009";
 import { recoverClaimSigner, signVerification } from "./claim-keys";
 import { ALL_CONTRACT_ERRORS, friendlyChainError, need } from "./onchain-client";
 import { NotFoundError } from "./types";
@@ -12,8 +13,10 @@ import { SETTLE_WINDOW_SECONDS } from "./usdc-settle";
 
 /**
  * Server-side relayer: submits ClaimEscrow.claim() and pays its gas, so payees with
- * brand-new accounts (no MON) can claim. After a claim it tops the recipient up with a little
- * MON (only if they're nearly empty) so they can send from their account later.
+ * brand-new accounts (no MON) can claim. It also submits payees' signed sends (relaySend) and
+ * changes to USDC (relaySettle), so sending needs no MON either. After a claim it tops the
+ * recipient up with a little MON (only if they're nearly empty) for anything they do from their
+ * account directly.
  *
  * It is also the claim verifier. ClaimEscrow refuses any claim without a co-signature from
  * VERIFIER_PRIVATE_KEY, and we only give one after checking the claimer's Privy session: one of
@@ -30,6 +33,12 @@ export type RelayResult = { txHash: Hex; amount: bigint; toppedUp: boolean };
 
 /** A refusal whose message is safe to show the claimer as is. */
 export class ClaimRefused extends Error {}
+
+/** The relayer isn't set up on this server (no key or no Privy secret). Nothing was attempted. */
+export class RelayUnavailable extends Error {}
+
+/** AUSD's ERC-3009 errors, so a used, expired or badly signed authorization decodes by name. */
+const authorizationErrors = transferWithAuthorizationAbi.filter((x) => x.type === "error");
 
 // ClaimEscrow.Status: 0 Sent, 1 Claimed, 2 Refunded.
 const SENT = 0;
@@ -177,6 +186,82 @@ export async function topUpForEmailPayment(input: { address: unknown; amount: un
   return { toppedUp: true };
 }
 
+/** Whether relaySend can run here: the client asks first and sends the old way if not. */
+export function relaySendConfigured(): boolean {
+  return relayerAccount() !== null && privyClient() !== null;
+}
+
+/** A non-negative integer sent as a decimal string, or null. */
+const uint = (v: unknown) => (typeof v === "string" && /^\d{1,78}$/.test(v) ? BigInt(v) : null);
+
+/**
+ * Sending dollars from a payee's account to anyone: submits AUSD's ERC-3009
+ * transferWithAuthorization with the payee's signature and pays its gas, so the payee never needs
+ * MON. The signature binds the payee, the recipient, the amount and a one-time nonce, so the relayer
+ * can't change where the money goes or send it twice. Signed-in users only; balance, deadline and
+ * rate are checked before any gas is spent. Throws RelayUnavailable when the relayer isn't set up,
+ * so the client can send the old way instead.
+ */
+export async function relaySend(input: {
+  from: unknown;
+  to: unknown;
+  value: unknown;
+  validAfter: unknown;
+  validBefore: unknown;
+  nonce: unknown;
+  signature: unknown;
+  accessToken: string | null;
+}): Promise<{ txHash: Hex }> {
+  const { from, to, nonce, signature, accessToken } = input;
+  const [value, validAfter, validBefore] = [uint(input.value), uint(input.validAfter), uint(input.validBefore)];
+  if (typeof from !== "string" || !isAddress(from)) throw new ClaimRefused("Your account isn't ready. Sign in again.");
+  if (typeof to !== "string" || !isAddress(to) || to === zeroAddress) throw new ClaimRefused("That address isn't valid. Nothing was sent.");
+  if (to.toLowerCase() === from.toLowerCase()) throw new ClaimRefused("That's your own address. Nothing was sent.");
+  if (value === null || value === 0n) throw new ClaimRefused("Enter an amount to send.");
+  if (validAfter === null || validBefore === null) throw new ClaimRefused("Something's off with this request. Try again.");
+  if (typeof nonce !== "string" || !isHex(nonce) || nonce.length !== 66) throw new ClaimRefused("Something's off with this request. Try again.");
+  if (typeof signature !== "string" || !isHex(signature) || signature.length < 132) throw new ClaimRefused("Something's off with this request. Try again.");
+  if (!accessToken) throw new ClaimRefused("Sign in to send money.");
+
+  const now = BigInt(Math.floor(Date.now() / 1000));
+  if (validAfter > now) throw new ClaimRefused("Something's off with this request. Try again.");
+  // Room to land, and no long-lived authorizations sitting around.
+  if (validBefore < now + 30n || validBefore > now + AUTHORIZATION_WINDOW_SECONDS + 60n) throw new ClaimRefused("That took too long. Nothing was sent. Try again.");
+
+  const account = relayerAccount();
+  const privyApi = privyClient();
+  if (!account || !privyApi) {
+    console.error("[relay] RELAYER_PRIVATE_KEY or PRIVY_APP_SECRET is not set");
+    throw new RelayUnavailable("Sending without a fee isn't available right now.");
+  }
+  await verifiedUser(privyApi, accessToken); // throws SessionExpired
+
+  const publicClient = createPublicClient({ chain: activeChain, transport: http() });
+  const wallet = createWalletClient({ account, chain: activeChain, transport: http() });
+  const ausd = need(config.stablecoin.address, "NEXT_PUBLIC_AUSD_ADDRESS");
+
+  try {
+    const held = await publicClient.readContract({ address: ausd, abi: erc20Abi, functionName: "balanceOf", args: [from as Address] });
+    if (held < value) throw new ClaimRefused("You don't have enough for that. Nothing was sent.");
+
+    // Dry run first: a bad signature or a used or expired authorization reverts here for free.
+    const { request } = await publicClient.simulateContract({
+      account,
+      address: ausd,
+      abi: transferWithAuthorizationAbi,
+      functionName: "transferWithAuthorization",
+      args: [from as Address, to as Address, value, validAfter, validBefore, nonce as Hex, signature as Hex],
+    });
+    const txHash = await wallet.writeContract(request);
+    const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
+    if (receipt.status !== "success") throw new Error("The payment failed. Nothing was sent. Try again.");
+    return { txHash };
+  } catch (err) {
+    if (err instanceof ClaimRefused) throw err;
+    throw friendlyChainError(err);
+  }
+}
+
 /**
  * Changing dollars to USDC: submits SettleToUsdc.settle() with the payee's signed authorization and
  * pays its gas. The signature binds the amount, the minimum USDC out and the payee, and the USDC can
@@ -193,7 +278,6 @@ export async function relaySettle(input: {
   signature: unknown;
   accessToken: string | null;
 }): Promise<{ txHash: Hex; amountOut: bigint }> {
-  const uint = (v: unknown) => (typeof v === "string" && /^\d{1,78}$/.test(v) ? BigInt(v) : null);
   const { from, salt, signature, accessToken } = input;
   const [value, validAfter, validBefore, minOut] = [uint(input.value), uint(input.validAfter), uint(input.validBefore), uint(input.minOut)];
   if (typeof from !== "string" || !isAddress(from)) throw new ClaimRefused("Your account isn't ready. Sign in again.");
@@ -231,7 +315,7 @@ export async function relaySettle(input: {
     const { request } = await publicClient.simulateContract({
       account,
       address: settle,
-      abi: [...settleToUsdcAbi, ...agoraPairAbi.filter((x) => x.type === "error"), ...ALL_CONTRACT_ERRORS],
+      abi: [...settleToUsdcAbi, ...agoraPairAbi.filter((x) => x.type === "error"), ...authorizationErrors, ...ALL_CONTRACT_ERRORS],
       functionName: "settle",
       args: [from as Address, value, validAfter, validBefore, salt as Hex, minOut, signature as Hex],
     });
