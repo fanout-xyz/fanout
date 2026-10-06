@@ -1,8 +1,10 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import { createWalletClient, http } from "viem";
 import { useAuth } from "@/lib/auth/provider";
+import { payoutPollInterval } from "@/lib/claim-progress";
 import { activeChain } from "@/lib/chains";
 import { usePayeeAccount } from "@/lib/payee/payee-account";
 import { hashEmail } from "@/lib/email-hash";
@@ -10,7 +12,7 @@ import { emailClaimLinks } from "./claim-email-client";
 import { claimEmailProofMessage, type ClaimEmailProof } from "./claim-email-proof";
 import { buildClaimLink, generateClaimKey } from "./claim-keys";
 import { saveClaims, type StoredClaim } from "./claim-link-store";
-import { mockRefundUnclaimed } from "./mock-client";
+import { mockRefundUnclaimed, mockSimulateClaims } from "./mock-client";
 import { NotFoundError } from "./types";
 import { config, usdcSettleEnabled } from "@/lib/config";
 import { erc20Abi } from "./abis";
@@ -133,15 +135,35 @@ export function useEmailClaimLinks() {
   });
 }
 
-/** One batch. Polls so claims made on a phone show up without a reload. */
+/**
+ * One batch. Polls so claims made on a phone show up without a reload: faster for a short while
+ * after the page opens, and not at all once everyone has claimed or been returned (claim-progress.ts).
+ */
 export function useBatch(batchId: string) {
   const client = useFanoutClient();
+  const [openedAt] = useState(() => Date.now());
   return useQuery({
     queryKey: fanoutKeys.batch(batchId),
     queryFn: () => client.getBatch(batchId),
     retry: (count, error) => !(error instanceof NotFoundError) && count < 1,
-    // Poll for claims, but stop once we know the payout doesn't exist.
-    refetchInterval: (query) => (query.state.error instanceof NotFoundError ? false : 5_000),
+    // Stop once we know the payout doesn't exist.
+    refetchInterval: (query) =>
+      query.state.error instanceof NotFoundError
+        ? false
+        : payoutPollInterval({ rows: query.state.data?.rows, openedAt, now: Date.now() }),
+  });
+}
+
+/** Demo only: marks up to `count` waiting people in a payout as claimed, so the claim counter can be watched moving. */
+export function useMockSimulateClaims(batchId: string) {
+  const address = useAuth().user?.address;
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (count: number) => mockSimulateClaims(address, batchId, count),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: fanoutKeys.batch(batchId) });
+      void queryClient.invalidateQueries({ queryKey: fanoutKeys.batches(address) });
+    },
   });
 }
 

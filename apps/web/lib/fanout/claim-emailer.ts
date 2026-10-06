@@ -101,27 +101,51 @@ async function readClaims(signers: Address[]): Promise<(ClaimRecord | null)[]> {
 
 type Outgoing = { claimSigner: Address; to: string; subject: string; text: string; html: string };
 
+/** Resend's batch endpoint takes up to 100 emails per call. */
+const RESEND_BATCH_SIZE = 100;
+/** Retries after a 429 rate limit (not a quota), waiting what Resend's retry-after asks, capped. */
+const RATE_LIMIT_RETRIES = 2;
+const MAX_RETRY_WAIT_MS = 5_000;
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+async function postBatch(body: string): Promise<{ ok: true } | { ok: false; reason: string }> {
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch("https://api.resend.com/emails/batch", {
+      method: "POST",
+      headers: { authorization: `Bearer ${process.env.RESEND_API_KEY}`, "content-type": "application/json" },
+      body,
+    }).catch(() => null);
+    if (res?.ok) return { ok: true };
+    // Log the status and error name only: the request body holds claim links.
+    const name = res ? (((await res.json().catch(() => ({}))) as { name?: unknown }).name ?? "") : "network";
+    console.error("[claim-email] Resend batch failed", res ? res.status : "network", name);
+    if (res?.status === 429 && typeof name === "string" && name.includes("quota")) {
+      return { ok: false, reason: "The daily email limit is reached. Copy the link instead, or email it again tomorrow." };
+    }
+    if (res?.status === 429 && attempt < RATE_LIMIT_RETRIES) {
+      const retryAfter = Number(res.headers.get("retry-after"));
+      await sleep(Math.min(Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 1000, MAX_RETRY_WAIT_MS));
+      continue;
+    }
+    return { ok: false, reason: "The email service didn't accept it. Try again." };
+  }
+}
+
 async function sendViaResend(emails: Outgoing[]): Promise<ClaimEmailResult> {
   const from = process.env.CLAIM_EMAIL_FROM || DEFAULT_FROM;
   const replyTo = process.env.CLAIM_EMAIL_REPLY_TO;
   const result: ClaimEmailResult = { sent: [], failed: [] };
-  // Resend's batch endpoint takes up to 100 emails per call.
-  for (let i = 0; i < emails.length; i += 100) {
-    const chunk = emails.slice(i, i + 100);
-    const res = await fetch("https://api.resend.com/emails/batch", {
-      method: "POST",
-      headers: { authorization: `Bearer ${process.env.RESEND_API_KEY}`, "content-type": "application/json" },
-      body: JSON.stringify(
+  // A full payout (MAX_ROWS = 150) is two calls, well under Resend's default 10 requests a second.
+  for (let i = 0; i < emails.length; i += RESEND_BATCH_SIZE) {
+    const chunk = emails.slice(i, i + RESEND_BATCH_SIZE);
+    const sent = await postBatch(
+      JSON.stringify(
         chunk.map((e) => ({ from, to: [e.to], subject: e.subject, text: e.text, html: e.html, ...(replyTo ? { reply_to: replyTo } : {}) })),
       ),
-    }).catch(() => null);
-    if (res?.ok) {
-      result.sent.push(...chunk.map((e) => e.claimSigner));
-    } else {
-      // Log the status only: the request body holds claim links.
-      console.error("[claim-email] Resend batch failed", res ? res.status : "network");
-      result.failed.push(...chunk.map((e) => ({ claimSigner: e.claimSigner, reason: "The email service didn't accept it. Try again." })));
-    }
+    );
+    if (sent.ok) result.sent.push(...chunk.map((e) => e.claimSigner));
+    else result.failed.push(...chunk.map((e) => ({ claimSigner: e.claimSigner, reason: sent.reason })));
   }
   return result;
 }

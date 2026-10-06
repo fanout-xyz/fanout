@@ -4,7 +4,7 @@ Three Solidity contracts on Monad testnet that move the money for Fanout: **Trea
 
 A fourth, standalone contract, **SettleToUsdc**, lets a payee take their dollars as USDC instead of AUSD, changed instantly and without fees through Agora's AUSD/USDC stable-swap pair. It doesn't touch the three payout contracts.
 
-**Status:** 27 tests passing, and two deployments on Monad testnet. The web app is connected to the **tAUSD** deployment, and Privy sign-in works. Next up is the first real deposit → batch → claim run. Target: working end to end on testnet by **Oct 6**.
+**Status:** 28 tests passing, and two deployments on Monad testnet. The web app is connected to the **tAUSD** deployment, and Privy sign-in works. Next up is the first real deposit → batch → claim run. Target: working end to end on testnet by **Oct 6**.
 
 ## Deployed addresses (Monad testnet)
 
@@ -342,19 +342,20 @@ These contracts are unaudited and deployed to testnet only. They assume AUSD is 
 
 ## Gas and limits
 
-- `createBatch` costs about **85k gas per row**. Most of that is three new storage slots per claim, plus one slot for the signer in the batch record.
-- A full 150-row batch measured **12.7M gas**. That's under the 16.7M per-transaction cap (EIP-7825), which Hardhat enforces by default. 200 rows ran out of gas.
+- `createBatch` costs about **94k gas per row** when every row has an email (about 85k when half do). Most of that is three new storage slots per claim, plus one slot for the signer in the batch record.
+- A full 150-row batch with an email on every row (the most expensive case) measured **14.2M gas** (12.7M with half the emails empty). Monad caps a transaction at **30M gas** ([Monad docs: gas pricing](https://docs.monad.xyz/developer-essentials/gas-pricing)), so a full batch uses about 47% of it; at ~94k per row the cap would be reached around 318 rows. It also fits Ethereum's stricter 16.7M cap (EIP-7825), which Hardhat enforces by default, with about 15% to spare (about 177 rows would reach it). 200 rows ran out of gas under Hardhat.
+- These numbers use the Ethereum (Cancun) gas schedule. Monad reprices some operations ([opcode pricing](https://docs.monad.xyz/developer-essentials/opcode-pricing)): cold account access costs more, and storage is priced per 128-slot page. For `createBatch` that difference is small next to the margin above; the test fails if a full batch goes past 60% of the 30M cap.
 - The web app must split CSVs with more than 150 rows into several batches.
-- Monad charges for the gas limit you set, not the gas actually used, so avoid setting limits far above the estimate.
+- Monad charges for the gas limit you set, not the gas actually used, so avoid setting limits far above the estimate. At the 100 gwei minimum base fee a full 150-row payout costs about 1.4 MON, so keep at least 2 MON in the platform account.
 
 ## Tests
 
-`pnpm test` runs `test/Fanout.ts` and `test/SettleToUsdc.ts`: 27 tests on Hardhat's in-process network. Each test starts from a fresh snapshot via `loadFixture`.
+`pnpm test` runs `test/Fanout.ts` and `test/SettleToUsdc.ts`: 28 tests on Hardhat's in-process network. Each test starts from a fresh snapshot via `loadFixture`.
 
 | Area | What's covered |
 | --- | --- |
 | Treasury | Deposit raises the balance and emits `Deposited`; a deposit without approval fails; withdraw works and can't exceed the balance; only BatchPayout can `debit` and only ClaimEscrow can `credit`; `wire` works once and only for the owner |
-| BatchPayout | A 150-row batch in one transaction (logs gas); `BatchCreated` with increasing ids; rejects an empty batch, mismatched arrays, 151 rows, a zero amount, a zero signer, a duplicate signer, a reused signer and too little balance; unknown `getBatch` and `getClaim` return zero values; only BatchPayout can `open` |
+| BatchPayout | A 150-row batch in one transaction (logs gas); a full batch with an email on every row stays under 60% of Monad's 30M per-transaction gas limit (logs gas per row); `BatchCreated` with increasing ids; rejects an empty batch, mismatched arrays, 151 rows, a zero amount, a zero signer, a duplicate signer, a reused signer and too little balance; unknown `getBatch` and `getClaim` return zero values; only BatchPayout can `open` |
 | ClaimEscrow | A relayer submits a valid claim and the payee is paid without spending gas; `Claimed` is emitted; rejects a wrong key, a swapped recipient, garbage signature bytes and a second attempt; rejects signatures made for another contract or chain; rejects unknown claims and a zero recipient; refund fails before expiry, works after it, credits the platform (which can then withdraw), and blocks any later claim or refund; an expired claim can still be claimed until someone refunds it |
 | SettleToUsdc | A relayer settles the payee's signed authorization and the USDC goes to the payee, with nothing left in the contract or sent to the relayer; naming a different `from` fails the signature; a lowered `minOut` fails the signature (it's in the nonce); a pair quote below the signed minimum reverts and moves nothing; an expired authorization and a replay are rejected; a contract without `APPROVED_SWAPPER` can't swap; zero amounts and addresses are rejected |
 

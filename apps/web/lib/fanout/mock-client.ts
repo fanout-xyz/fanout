@@ -57,3 +57,8 @@ export function createMockClient(ctx: FanoutClientContext): FanoutClient {
 export function mockRefundUnclaimed(account: string | undefined, batchId: string): Promise<null> {
   return rpc("refundUnclaimed", account, [batchId]);
 }
+
+/** Demo helper: marks up to `count` waiting payments in a batch the account sent as claimed. Resolves with how many were. */
+export function mockSimulateClaims(account: string | undefined, batchId: string, count: number): Promise<number> {
+  return rpc("simulateClaims", account, [batchId, count]);
+}

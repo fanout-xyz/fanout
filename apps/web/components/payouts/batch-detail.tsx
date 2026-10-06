@@ -24,10 +24,13 @@ import { config } from "@/lib/config";
 import { buildClaimLink } from "@/lib/fanout/claim-keys";
 import { loadAllClaims, subscribeClaims, type StoredClaim } from "@/lib/fanout/claim-link-store";
 import type { PayoutStatus } from "@/lib/fanout/client";
+import { claimProgress } from "@/lib/claim-progress";
 import { useBatch, useMockExpireUnclaimed } from "@/lib/fanout/queries";
 import { formatUsd } from "@/lib/money";
 import { cn } from "@/lib/utils";
+import { ClaimCounter } from "./claim-counter";
 import { ClaimLinkActions } from "./claim-link-actions";
+import { SimulateClaimsButton } from "./simulate-claims";
 import { EmailLinkButton, emailedLabel, UnclaimedReminder } from "./claim-reminders";
 
 const dateFormat = new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short" });
@@ -70,8 +73,9 @@ export function BatchDetail({ id }: { id: string }) {
     return (
       <div className="flex flex-col gap-6" aria-busy="true" aria-label="Loading payout">
         <Skeleton className="h-9 w-56" />
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {[0, 1, 2, 3].map((i) => (
+        <Skeleton className="h-40 rounded-lg" />
+        <div className="grid gap-4 sm:grid-cols-3">
+          {[0, 1, 2].map((i) => (
             <Skeleton key={i} className="h-24 rounded-lg" />
           ))}
         </div>
@@ -102,6 +106,7 @@ export function BatchDetail({ id }: { id: string }) {
   const sum = (s: PayoutStatus) => rows.filter((r) => r.status === s).reduce((t, r) => t + r.amount, 0n);
   const count = (s: PayoutStatus) => rows.filter((r) => r.status === s).length;
   const counts: Record<Filter, number> = { all: rows.length, sent: count("sent"), claimed: count("claimed"), refunded: count("refunded") };
+  const progress = claimProgress(rows);
   const visible = filter === "all" ? rows : rows.filter((r) => r.status === filter);
   const hasTx = b.txHash !== zeroHash;
   const linksMissing = rows.length > 0 && rows.every((r) => !r.claim);
@@ -154,9 +159,10 @@ export function BatchDetail({ id }: { id: string }) {
         </div>
       </div>
 
-      <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Stat label="Total sent" value={formatUsd(b.total)} />
-        <Stat label="Claimed" value={formatUsd(sum("claimed"))} sub={`${counts.claimed} of ${rows.length} people`} />
+      <ClaimCounter progress={progress} />
+
+      <dl className="grid gap-4 sm:grid-cols-3">
+        <Stat label="Total sent" value={formatUsd(b.total)} sub={`${rows.length} ${rows.length === 1 ? "person" : "people"}`} />
         <Stat label="Waiting to be claimed" value={formatUsd(sum("sent"))} sub={`${counts.sent} ${counts.sent === 1 ? "person" : "people"}`} />
         <Stat label="Returned to balance" value={formatUsd(sum("refunded"))} sub={`${counts.refunded} unclaimed`} />
       </dl>
@@ -257,6 +263,7 @@ export function BatchDetail({ id }: { id: string }) {
       {config.useMock && counts.sent > 0 && (
         <div className="flex flex-wrap items-center gap-3 text-sm text-muted">
           <span>Demo:</span>
+          <SimulateClaimsButton batchId={id} waiting={counts.sent} />
           <Dialog>
             <DialogTrigger asChild>
               <Button variant="ghost" size="sm">

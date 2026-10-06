@@ -104,6 +104,36 @@ describe("sendClaimEmails", () => {
     expect(sentBodies).toEqual([]);
   });
 
+  it("emails a full 150-person payout in two batch calls", async () => {
+    g.__fanoutMock!.treasury[platform.toLowerCase() as `0x${string}`] = 150n * 50_000_000n;
+    const requests = Array.from({ length: 150 }, (_, i) => ({ key: pay(`p${i}@fanout.tech`).privateKey, email: `p${i}@fanout.tech` }));
+    expect(parseRequests({ links: requests })).toHaveLength(150);
+    const res = await sendClaimEmails({ requests, accessToken: null, mockAccount: platform });
+    expect(res.sent).toHaveLength(150);
+    expect(res.failed).toEqual([]);
+    expect(sentBodies.map((b) => b.length)).toEqual([100, 50]);
+  });
+
+  it("waits and retries when Resend rate-limits, but not when the daily quota is used up", async () => {
+    const key = pay("ana@example.com");
+    const replies = [
+      new Response(JSON.stringify({ name: "rate_limit_exceeded" }), { status: 429, headers: { "retry-after": "0.01" } }),
+      new Response("{}", { status: 200 }),
+    ];
+    const fetchMock = vi.fn(async () => replies.shift()!);
+    vi.stubGlobal("fetch", fetchMock);
+    const ok = await sendClaimEmails({ requests: [{ key: key.privateKey, email: "ana@example.com" }], accessToken: null, mockAccount: platform });
+    expect(ok.sent).toEqual([key.claimSigner]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    const quota = vi.fn(async () => new Response(JSON.stringify({ name: "daily_quota_exceeded" }), { status: 429 }));
+    vi.stubGlobal("fetch", quota);
+    const res = await sendClaimEmails({ requests: [{ key: key.privateKey, email: "ana@example.com" }], accessToken: null, mockAccount: platform });
+    expect(res.sent).toEqual([]);
+    expect(res.failed[0].reason).toMatch(/daily email limit/);
+    expect(quota).toHaveBeenCalledTimes(1);
+  });
+
   it("refuses when email isn't configured, and rejects malformed requests", async () => {
     delete process.env.RESEND_API_KEY;
     await expect(sendClaimEmails({ requests: [], accessToken: null, mockAccount: platform })).rejects.toThrow(EmailRefused);
