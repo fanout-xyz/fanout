@@ -11,6 +11,7 @@ import type {
   Hex,
   PayeeHistoryItem,
   TxResult,
+  UsdcSettleResult,
 } from "./types";
 
 /**
@@ -31,6 +32,13 @@ export interface FanoutClient {
   claim(claimSigner: Address, recipient: Address, signature: Hex): Promise<TxResult>;
   getPayeeBalance(address: Address): Promise<bigint>;
   send(to: Address, amount: bigint): Promise<TxResult>;
+  /**
+   * Changes `amount` of the signed-in payee's dollars (AUSD) to USDC through Agora's stable-swap pair.
+   * The payee signs one authorization; our relayer submits it (see lib/fanout/usdc-settle.ts).
+   */
+  receiveAsUsdc(amount: bigint): Promise<UsdcSettleResult>;
+  /** USDC held, in USDC base units (config.usdc.decimals). */
+  getPayeeUsdcBalance(address: Address): Promise<bigint>;
 
   /** PROPOSED: past batches for the dashboard. Onchain version likely comes from the indexer. */
   listBatches(platform: Address): Promise<BatchSummary[]>;

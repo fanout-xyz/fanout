@@ -3,7 +3,9 @@ import type { Hex } from "viem";
 import { indexedBatches, indexedBatchTx, indexedPayeeHistory, mergeHistory } from "./indexer";
 import type { PayeeHistoryItem } from "./types";
 
-vi.mock("@/lib/config", () => ({ config: { useMock: false, indexerUrl: "https://indexer.test/v1/graphql" } }));
+vi.mock("@/lib/config", () => ({
+  config: { useMock: false, indexerUrl: "https://indexer.test/v1/graphql", usdc: { settle: "0x5e771e5e771e5e771e5e771e5e771e5e771e5e77" } },
+}));
 
 const platform = "0x978D459587b9807375E7A02ff403BED7E68d0b0e";
 const payee = "0xDb46e858d1F035dd097B20E186B5b8995B71FDdE";
@@ -59,12 +61,15 @@ describe("payee history", () => {
     respond({
       data: {
         PayeeActivity: [
+          { kind: "Sent", amount: "5", counterparty: "0x5E771e5E771E5e771e5e771e5e771E5E771e5e77", txHash: tx(3), timestamp: 30 },
           { kind: "Sent", amount: "15", counterparty: platform, txHash: tx(2), timestamp: 20 },
           { kind: "Received", amount: "40", counterparty: platform, txHash: tx(1), timestamp: 10, claim_id: "0xclaim" },
         ],
       },
     });
     expect(await indexedPayeeHistory(payee)).toEqual([
+      // AUSD sent to SettleToUsdc is the payee changing to USDC.
+      { kind: "sent", amount: 5n, counterparty: "0x5E771e5E771E5e771e5e771e5e771E5E771e5e77", txHash: tx(3), timestamp: 30_000, toUsdc: true },
       { kind: "sent", amount: 15n, counterparty: platform, txHash: tx(2), timestamp: 20_000 },
       { kind: "received", amount: 40n, counterparty: platform, txHash: tx(1), timestamp: 10_000, payout: true },
     ]);

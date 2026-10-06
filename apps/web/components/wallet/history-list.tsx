@@ -49,11 +49,11 @@ export function HistoryList() {
                   <Arrow down={received} />
                 </span>
                 <div className="min-w-0 flex-1">
-                  <p className="truncate font-semibold">{received ? "Payment received" : sentLabel(item.counterparty)}</p>
+                  <p className="truncate font-semibold">{received ? "Payment received" : item.toUsdc ? "Changed to USDC" : sentLabel(item.counterparty)}</p>
                   <p className="text-sm text-muted tabular-nums">{when.format(item.timestamp)}</p>
                 </div>
                 <p className={cn("font-bold tabular-nums", received ? "text-success" : "text-foreground")}>
-                  <span className="sr-only">{received ? "Received " : "Sent "}</span>
+                  <span className="sr-only">{received ? "Received " : item.toUsdc ? "Changed to USDC " : "Sent "}</span>
                   {received ? "+" : "−"}
                   {formatUsd(item.amount)}
                 </p>

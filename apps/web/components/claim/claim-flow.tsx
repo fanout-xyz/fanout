@@ -12,6 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { AccountSetup } from "@/components/payee/account-setup";
 import { InstallPrompt } from "@/components/payee/install-prompt";
 import { LocalAmount } from "@/components/payee/local-amount";
+import { UsdcOffer } from "@/components/payee/usdc-offer";
 import { useAuth } from "@/lib/auth/provider";
 import { activeChain } from "@/lib/chains";
 import { claimVerifyingContract, config } from "@/lib/config";
@@ -169,6 +170,8 @@ function ClaimForKey({ privateKey }: { privateKey: Hex | null | undefined }) {
           error={error}
           successAction={
             <>
+              {/* Claiming and changing to USDC are separate steps: the claim lands first, then this is offered. */}
+              <UsdcOffer amount={claim.amount} source="claim" className="mb-4" />
               <BalanceLink />
               <InstallPrompt className="mt-4" />
             </>
