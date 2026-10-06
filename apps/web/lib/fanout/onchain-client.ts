@@ -16,11 +16,12 @@ import {
 import { activeChain, monFaucetUrl } from "@/lib/chains";
 import { config } from "@/lib/config";
 import { MAX_ROWS } from "@/lib/csv";
-import { batchPayoutAbi, claimEscrowAbi, erc20Abi, treasuryAbi } from "./abis";
+import { agoraPairAbi, batchPayoutAbi, claimEscrowAbi, eip712DomainAbi, erc20Abi, treasuryAbi } from "./abis";
 import type { FanoutClient, FanoutClientContext } from "./client";
 import { indexedBatches, indexedBatchTx, indexedPayeeHistory, indexerEnabled, mergeHistory } from "./indexer";
 import { recallActivity, recallBatchTx, rememberActivity, rememberBatchTx } from "./local-records";
 import { NotFoundError, type BatchSummary, type PayoutStatus } from "./types";
+import { minOutFor, randomSalt, SETTLE_WINDOW_SECONDS, signSettle, type TokenDomain } from "./usdc-settle";
 
 /**
  * FanoutClient against the deployed contracts (Treasury, BatchPayout, ClaimEscrow on Monad testnet).
@@ -62,6 +63,13 @@ const REVERT_MESSAGES: Record<string, string> = {
   BadSignature: "This payment link isn't valid.",
   NotExpired: "This payment hasn't expired yet.",
   Unauthorized: "This account isn't allowed to do that.",
+  // Agora's stable-swap pair, when changing dollars to USDC. Nothing moves when these happen.
+  InsufficientOutputAmount: "The USDC rate moved. Nothing changed. Try again.",
+  Expired: "That took too long. Nothing changed. Try again.",
+  PriceExpired: "USDC isn't available right now. Nothing changed. Try again later.",
+  PairIsPaused: "USDC isn't available right now. Nothing changed. Try again later.",
+  InsufficientLiquidity: "There isn't enough USDC available right now. Try a smaller amount.",
+  AddressIsNotRole: "USDC isn't available right now. Nothing changed. Try again later.",
 };
 
 /** Turns wallet/chain errors into plain sentences; keeps NotFoundError as is. */
@@ -97,6 +105,12 @@ export function need(value: Address | undefined, name: string): Address {
   return value;
 }
 
+/** A token's EIP-712 domain, read from the token itself (ERC-5267). Agora AUSD: "Agora Dollar", "1". */
+async function tokenDomain(token: Address): Promise<TokenDomain> {
+  const [, name, version, chainId, verifyingContract] = await reader().readContract({ address: token, abi: eip712DomainAbi, functionName: "eip712Domain" });
+  return { name, version, chainId: Number(chainId), verifyingContract };
+}
+
 export function createOnchainClient(ctx: FanoutClientContext): FanoutClient {
   const c = {
     get treasury() {
@@ -110,6 +124,7 @@ export function createOnchainClient(ctx: FanoutClientContext): FanoutClient {
     },
   };
   const tokenAddress = () => need(config.stablecoin.address, "NEXT_PUBLIC_AUSD_ADDRESS");
+  const usdcAddress = () => need(config.usdc.address, "NEXT_PUBLIC_USDC_ADDRESS");
 
   async function signer(): Promise<{ wc: WalletClient; account: Address }> {
     const wc = ctx.walletClient;
@@ -285,6 +300,70 @@ export function createOnchainClient(ctx: FanoutClientContext): FanoutClient {
         });
         return { txHash: receipt.transactionHash };
       }),
+
+    receiveAsUsdc: (amount) =>
+      guard(async () => {
+        const settle = need(config.usdc.settle, "NEXT_PUBLIC_SETTLE_ADDRESS");
+        // The relayer pays the gas, so like claiming it wants a signed-in session.
+        const accessToken = await ctx.getAccessToken?.();
+        if (!accessToken) throw new Error("Sign in to change dollars to USDC.");
+        const { wc, account } = await signer();
+        const [held, [, quote], domain] = await Promise.all([
+          reader().readContract({ address: tokenAddress(), abi: erc20Abi, functionName: "balanceOf", args: [account] }),
+          reader().readContract({
+            address: need(config.usdc.pair, "NEXT_PUBLIC_AGORA_PAIR_ADDRESS"),
+            abi: agoraPairAbi,
+            functionName: "getAmountsOut",
+            args: [amount, [tokenAddress(), usdcAddress()]],
+          }),
+          tokenDomain(tokenAddress()),
+        ]);
+        if (held < amount) throw new Error(`Your balance is ${usd(held)}, less than ${usd(amount)}.`);
+
+        // One signature: AUSD to SettleToUsdc, at least minOut USDC back (lib/fanout/usdc-settle.ts).
+        const auth = {
+          from: account,
+          value: amount,
+          validAfter: 0n,
+          validBefore: BigInt(Math.floor(Date.now() / 1000)) + SETTLE_WINDOW_SECONDS,
+          salt: randomSalt(),
+          minOut: minOutFor(quote),
+        };
+        const signature = await signSettle(wc, domain, settle, auth);
+
+        let res: Response;
+        try {
+          res = await fetch("/api/relay/settle", {
+            method: "POST",
+            headers: { "content-type": "application/json", authorization: `Bearer ${accessToken}` },
+            body: JSON.stringify({
+              from: auth.from,
+              value: auth.value.toString(),
+              validAfter: auth.validAfter.toString(),
+              validBefore: auth.validBefore.toString(),
+              salt: auth.salt,
+              minOut: auth.minOut.toString(),
+              signature,
+            }),
+          });
+        } catch {
+          throw new Error("Can't reach the server. Check your connection and try again.");
+        }
+        const body = (await res.json().catch(() => ({}))) as { txHash?: Hex; amountOut?: string; error?: string };
+        if (!res.ok || !body.txHash) throw new Error(body.error ?? "Something went wrong and nothing changed. Try again.");
+        rememberActivity(activeChain.id, account, {
+          kind: "sent",
+          amount,
+          counterparty: settle,
+          txHash: body.txHash,
+          timestamp: Date.now(),
+          toUsdc: true,
+        });
+        return { txHash: body.txHash, amountOut: BigInt(body.amountOut ?? "0") };
+      }),
+
+    getPayeeUsdcBalance: (address) =>
+      guard(() => reader().readContract({ address: usdcAddress(), abi: erc20Abi, functionName: "balanceOf", args: [address] })),
 
     listBatches: (platform) =>
       guard(async () => {

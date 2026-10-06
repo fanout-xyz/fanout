@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { activeChain } from "@/lib/chains";
-import { claimVerifyingContract } from "@/lib/config";
+import { claimVerifyingContract, config } from "@/lib/config";
 import { generateClaimKey, signClaim } from "./claim-keys";
 import { emptyState, engine, type MockState } from "./mock-engine";
 import { NotFoundError } from "./types";
@@ -67,6 +67,34 @@ describe("mock engine", () => {
 
   it("requires sign-in for writes", () => {
     expect(() => engine.deposit(s, undefined, 1n)).toThrow(/Sign in/);
+  });
+
+  it("changes a payee's dollars to USDC 1:1, with history", async () => {
+    engine.deposit(s, platform, 10_000_000n);
+    const a = generateClaimKey();
+    engine.createBatchPayout(s, platform, [{ claimSigner: a.claimSigner, amount: 5_000_000n }]);
+    await engine.claim(s, a.claimSigner, payee, await sign(a.privateKey, payee));
+
+    const { amountOut } = engine.receiveAsUsdc(s, payee, 2_000_000n);
+    const scale = 10n ** BigInt(config.usdc.decimals - config.stablecoin.decimals);
+    expect(amountOut).toBe(2_000_000n * scale);
+    expect(engine.getPayeeBalance(s, payee)).toBe(3_000_000n);
+    expect(engine.getPayeeUsdcBalance(s, payee)).toBe(2_000_000n * scale);
+    expect(engine.getPayeeHistory(s, payee)[0]).toMatchObject({ kind: "sent", amount: 2_000_000n, toUsdc: true });
+
+    expect(() => engine.receiveAsUsdc(s, payee, 4_000_000n)).toThrow(/Not enough/);
+    expect(() => engine.receiveAsUsdc(s, payee, 0n)).toThrow(/more than/);
+    expect(() => engine.receiveAsUsdc(s, undefined, 1n)).toThrow(/Sign in/);
+    expect(engine.getPayeeUsdcBalance(s, friend)).toBe(0n);
+  });
+
+  it("loads state saved before USDC balances existed", () => {
+    const old: Partial<MockState> = { ...emptyState(), balances: { [payee]: 1_000_000n } };
+    delete old.usdcBalances;
+    const loaded = fromWire<MockState>(toWire(old));
+    expect(engine.getPayeeUsdcBalance(loaded, payee)).toBe(0n);
+    engine.receiveAsUsdc(loaded, payee, 1_000_000n);
+    expect(engine.getPayeeUsdcBalance(loaded, payee)).toBeGreaterThan(0n);
   });
 
   it("round-trips state with bigints through the wire format", () => {

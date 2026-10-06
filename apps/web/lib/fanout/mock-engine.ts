@@ -1,6 +1,6 @@
 import { isAddress, keccak256, toHex, type Address, type Hex } from "viem";
 import { activeChain } from "@/lib/chains";
-import { claimVerifyingContract } from "@/lib/config";
+import { claimVerifyingContract, config } from "@/lib/config";
 import { recoverClaimSigner } from "./claim-keys";
 import { NotFoundError, type Batch, type BatchRowInput, type BatchSummary, type ClaimInfo, type PayeeHistoryItem } from "./types";
 
@@ -19,11 +19,13 @@ export type MockState = {
   /** claimSigner -> where that payout lives */
   claims: Record<Address, { batchId: string; index: number }>;
   balances: Record<Address, bigint>;
+  /** USDC held, in USDC base units. Optional: state saved before USDC existed has none. */
+  usdcBalances?: Record<Address, bigint>;
   history: Record<Address, PayeeHistoryItem[]>;
 };
 
 export function emptyState(): MockState {
-  return { nextBatchId: 1, treasury: {}, batches: {}, claims: {}, balances: {}, history: {} };
+  return { nextBatchId: 1, treasury: {}, batches: {}, claims: {}, balances: {}, usdcBalances: {}, history: {} };
 }
 
 const key = (a: Address) => a.toLowerCase() as Address;
@@ -36,6 +38,9 @@ function requireAccount(account: Address | undefined): Address {
   if (!account || !isAddress(account)) throw new Error("Sign in first.");
   return key(account);
 }
+
+/** 1 AUSD unit -> this many USDC units (the pair trades 1:1 in dollars, fee 0). */
+const usdcPerAusdUnit = () => 10n ** BigInt(Math.max(0, config.usdc.decimals - config.stablecoin.decimals));
 
 function pushHistory(s: MockState, address: Address, item: PayeeHistoryItem) {
   (s.history[address] ??= []).unshift(item);
@@ -142,6 +147,24 @@ export const engine = {
     return { txHash };
   },
 
+  /** Same rules as SettleToUsdc: the payee's own dollars, swapped 1:1, paid back to them. */
+  receiveAsUsdc(s: MockState, account: Address | undefined, amount: bigint) {
+    const me = requireAccount(account);
+    if (amount <= 0n) throw new Error("Amount must be more than $0.");
+    if (amount > (s.balances[me] ?? 0n)) throw new Error("Not enough balance.");
+    const amountOut = amount * usdcPerAusdUnit();
+    const txHash = fakeTxHash();
+    const usdc = (s.usdcBalances ??= {});
+    s.balances[me] -= amount;
+    usdc[me] = (usdc[me] ?? 0n) + amountOut;
+    pushHistory(s, me, { kind: "sent", amount, counterparty: me, txHash, timestamp: Date.now(), toUsdc: true });
+    return { txHash, amountOut };
+  },
+
+  getPayeeUsdcBalance(s: MockState, address: Address): bigint {
+    return s.usdcBalances?.[key(address)] ?? 0n;
+  },
+
   listBatches(s: MockState, platform: Address): BatchSummary[] {
     const p = key(platform);
     return Object.values(s.batches)
@@ -178,5 +201,5 @@ export const engine = {
 };
 
 /** Methods that change state (the store saves after these). */
-export const MUTATING = new Set(["deposit", "createBatchPayout", "claim", "send", "refundUnclaimed"]);
+export const MUTATING = new Set(["deposit", "createBatchPayout", "claim", "send", "receiveAsUsdc", "refundUnclaimed"]);
 export type EngineMethod = keyof typeof engine;

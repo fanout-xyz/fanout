@@ -12,7 +12,7 @@ import { buildClaimLink, generateClaimKey } from "./claim-keys";
 import { saveClaims, type StoredClaim } from "./claim-link-store";
 import { mockRefundUnclaimed } from "./mock-client";
 import { NotFoundError } from "./types";
-import { config } from "@/lib/config";
+import { config, usdcSettleEnabled } from "@/lib/config";
 import { erc20Abi } from "./abis";
 import { need, reader } from "./onchain-client";
 import { createFanoutClient } from "./client";
@@ -24,6 +24,7 @@ export const fanoutKeys = {
   batches: (platform?: string) => ["fanout", "batches", platform?.toLowerCase()] as const,
   batch: (id: string) => ["fanout", "batch", id] as const,
   payeeBalance: (address?: string) => ["fanout", "payee-balance", address?.toLowerCase()] as const,
+  payeeUsdc: (address?: string) => ["fanout", "payee-usdc", address?.toLowerCase()] as const,
   payeeHistory: (address?: string) => ["fanout", "payee-history", address?.toLowerCase()] as const,
   accountFunds: (address?: string) => ["fanout", "account-funds", address?.toLowerCase()] as const,
 };
@@ -168,6 +169,17 @@ export function usePayeeBalance() {
   });
 }
 
+/** USDC the payee holds (USDC base units). Only asked for when payees are offered USDC. */
+export function usePayeeUsdcBalance() {
+  const client = useFanoutClient();
+  const address = usePayeeAccount().address;
+  return useQuery({
+    queryKey: fanoutKeys.payeeUsdc(address),
+    queryFn: () => client.getPayeeUsdcBalance(address!),
+    enabled: !!address && usdcSettleEnabled(),
+  });
+}
+
 export function usePayeeHistory() {
   const client = useFanoutClient();
   const address = usePayeeAccount().address;
@@ -200,6 +212,35 @@ export function useSend() {
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: fanoutKeys.payeeBalance(address) });
+      void queryClient.invalidateQueries({ queryKey: fanoutKeys.payeeHistory(address) });
+    },
+  });
+}
+
+/**
+ * Changes some of the payee's dollars to USDC. Signed like useSend (passkey opened for this one
+ * signature, or the sign-in wallet); the relayer submits it, so the payee pays no fee.
+ */
+export function useReceiveAsUsdc() {
+  const auth = useAuth();
+  const signInClient = useFanoutClient();
+  const payee = usePayeeAccount();
+  const address = payee.address;
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (amount: bigint) => {
+      if (payee.kind !== "passkey") return signInClient.receiveAsUsdc(amount);
+      const unlocked = await payee.unlock();
+      try {
+        const walletClient = createWalletClient({ account: unlocked.account, chain: activeChain, transport: http() });
+        return await createFanoutClient({ account: unlocked.address, walletClient, getAccessToken: auth.getAccessToken }).receiveAsUsdc(amount);
+      } finally {
+        unlocked.end();
+      }
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: fanoutKeys.payeeBalance(address) });
+      void queryClient.invalidateQueries({ queryKey: fanoutKeys.payeeUsdc(address) });
       void queryClient.invalidateQueries({ queryKey: fanoutKeys.payeeHistory(address) });
     },
   });

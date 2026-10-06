@@ -1,13 +1,14 @@
 import "server-only";
-import { createPublicClient, createWalletClient, http, isAddress, isHex, parseEther, type Address, type Hex } from "viem";
+import { createPublicClient, createWalletClient, http, isAddress, isHex, parseEther, parseEventLogs, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { activeChain } from "@/lib/chains";
 import { privyClient, SessionExpired, verifiedUser } from "@/lib/auth/privy-server";
 import { config } from "@/lib/config";
-import { claimEscrowAbi, erc20Abi } from "./abis";
+import { agoraPairAbi, claimEscrowAbi, erc20Abi, settleToUsdcAbi } from "./abis";
 import { recoverClaimSigner, signVerification } from "./claim-keys";
 import { ALL_CONTRACT_ERRORS, friendlyChainError, need } from "./onchain-client";
 import { NotFoundError } from "./types";
+import { SETTLE_WINDOW_SECONDS } from "./usdc-settle";
 
 /**
  * Server-side relayer: submits ClaimEscrow.claim() and pays its gas, so payees with
@@ -174,4 +175,73 @@ export async function topUpForEmailPayment(input: { address: unknown; amount: un
   const hash = await wallet.sendTransaction({ account, chain: activeChain, to: address as Address, value: target - have });
   await publicClient.waitForTransactionReceipt({ hash });
   return { toppedUp: true };
+}
+
+/**
+ * Changing dollars to USDC: submits SettleToUsdc.settle() with the payee's signed authorization and
+ * pays its gas. The signature binds the amount, the minimum USDC out and the payee, and the USDC can
+ * only go to the payee, so the relayer can't redirect anything. Like the fee top-up, it serves
+ * signed-in users only, and checks balance, rate and deadline before spending any gas.
+ */
+export async function relaySettle(input: {
+  from: unknown;
+  value: unknown;
+  validAfter: unknown;
+  validBefore: unknown;
+  salt: unknown;
+  minOut: unknown;
+  signature: unknown;
+  accessToken: string | null;
+}): Promise<{ txHash: Hex; amountOut: bigint }> {
+  const uint = (v: unknown) => (typeof v === "string" && /^\d{1,78}$/.test(v) ? BigInt(v) : null);
+  const { from, salt, signature, accessToken } = input;
+  const [value, validAfter, validBefore, minOut] = [uint(input.value), uint(input.validAfter), uint(input.validBefore), uint(input.minOut)];
+  if (typeof from !== "string" || !isAddress(from)) throw new ClaimRefused("Your account isn't ready. Sign in again.");
+  if (value === null || value === 0n || validAfter === null || validBefore === null || minOut === null) throw new ClaimRefused("Enter an amount to change.");
+  if (typeof salt !== "string" || !isHex(salt) || salt.length !== 66) throw new ClaimRefused("Something's off with this request. Try again.");
+  if (typeof signature !== "string" || !isHex(signature) || signature.length < 132) throw new ClaimRefused("Something's off with this request. Try again.");
+  if (!accessToken) throw new ClaimRefused("Sign in to change dollars to USDC.");
+
+  const now = BigInt(Math.floor(Date.now() / 1000));
+  // Room to land, and no long-lived authorizations sitting around.
+  if (validBefore < now + 30n || validBefore > now + SETTLE_WINDOW_SECONDS + 60n) throw new ClaimRefused("That took too long. Try again.");
+
+  const account = relayerAccount();
+  const privyApi = privyClient();
+  const settle = config.usdc.settle;
+  if (!account || !privyApi || !settle || !config.usdc.address || !config.usdc.pair) {
+    console.error("[relay] RELAYER_PRIVATE_KEY, PRIVY_APP_SECRET or the USDC settings are not set");
+    throw new Error("USDC isn't available right now. Try again later.");
+  }
+  await verifiedUser(privyApi, accessToken); // throws SessionExpired
+
+  const publicClient = createPublicClient({ chain: activeChain, transport: http() });
+  const wallet = createWalletClient({ account, chain: activeChain, transport: http() });
+  const ausd = need(config.stablecoin.address, "NEXT_PUBLIC_AUSD_ADDRESS");
+
+  try {
+    const [held, [, quote]] = await Promise.all([
+      publicClient.readContract({ address: ausd, abi: erc20Abi, functionName: "balanceOf", args: [from as Address] }),
+      publicClient.readContract({ address: config.usdc.pair, abi: agoraPairAbi, functionName: "getAmountsOut", args: [value, [ausd, config.usdc.address]] }),
+    ]);
+    if (held < value) throw new ClaimRefused("You don't have enough for that. Nothing changed.");
+    if (quote < minOut) throw new ClaimRefused("The USDC rate moved. Nothing changed. Try again.");
+
+    // Dry run first: a bad signature, a used authorization or a pair problem reverts here for free.
+    const { request } = await publicClient.simulateContract({
+      account,
+      address: settle,
+      abi: [...settleToUsdcAbi, ...agoraPairAbi.filter((x) => x.type === "error"), ...ALL_CONTRACT_ERRORS],
+      functionName: "settle",
+      args: [from as Address, value, validAfter, validBefore, salt as Hex, minOut, signature as Hex],
+    });
+    const txHash = await wallet.writeContract(request);
+    const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
+    if (receipt.status !== "success") throw new Error("The change to USDC failed onchain. Nothing changed. Try again.");
+    const [event] = parseEventLogs({ abi: settleToUsdcAbi, eventName: "SettledToUsdc", logs: receipt.logs });
+    return { txHash, amountOut: event?.args.amountOut ?? quote };
+  } catch (err) {
+    if (err instanceof ClaimRefused) throw err;
+    throw friendlyChainError(err);
+  }
 }

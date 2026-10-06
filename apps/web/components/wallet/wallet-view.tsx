@@ -7,7 +7,9 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LocalAmount } from "@/components/payee/local-amount";
 import { InstallPrompt } from "@/components/payee/install-prompt";
-import { usePayeeBalance } from "@/lib/fanout/queries";
+import { UsdcOffer } from "@/components/payee/usdc-offer";
+import { config } from "@/lib/config";
+import { usePayeeBalance, usePayeeUsdcBalance } from "@/lib/fanout/queries";
 import { formatUsd, toCents } from "@/lib/money";
 import { usePayeeAccount } from "@/lib/payee/payee-account";
 import type { PaymentRequest } from "@/lib/payment-request";
@@ -39,6 +41,7 @@ function Wallet({ request, onRequestDone }: { request?: PaymentRequest; onReques
   const payee = usePayeeAccount();
   const address = payee.address;
   const balance = usePayeeBalance();
+  const usdc = usePayeeUsdcBalance();
   // A pay link (/pay?to=…) opens straight on a pre-filled send.
   const [view, setView] = useState<View>(request ? { kind: "send", request } : { kind: "home" });
   const home = () => {
@@ -99,6 +102,9 @@ function Wallet({ request, onRequestDone }: { request?: PaymentRequest; onReques
           <>
             <p className="mt-3 font-display text-[clamp(44px,13vw,60px)] leading-none tracking-[-0.03em] tabular-nums">{formatUsd(balance.data)}</p>
             {balance.data > 0n && <LocalAmount cents={toCents(balance.data)} className="mt-2 text-cream/70" />}
+            {!!usdc.data && usdc.data > 0n && (
+              <p className="mt-2 text-sm font-semibold text-cream/70 tabular-nums">+ {formatUsd(usdc.data, config.usdc.decimals)} in USDC</p>
+            )}
           </>
         )}
         <div className="mt-6 flex items-end justify-between text-xs text-cream/60">
@@ -124,6 +130,8 @@ function Wallet({ request, onRequestDone }: { request?: PaymentRequest; onReques
         ))}
       </nav>
       {empty && <p className="-mt-3 text-center text-sm text-muted">Nothing to send yet. Use Receive or Request to get paid.</p>}
+
+      {balance.data !== undefined && <UsdcOffer amount={balance.data} source="balance" />}
 
       <PassportCard />
 

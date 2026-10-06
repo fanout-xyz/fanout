@@ -44,7 +44,7 @@ export function SendFlow({
   const recent = useMemo(() => {
     const seen = new Set<string>();
     return (history.data ?? [])
-      .filter((i) => i.kind === "sent" && !seen.has(i.counterparty.toLowerCase()) && seen.add(i.counterparty.toLowerCase()))
+      .filter((i) => i.kind === "sent" && !i.toUsdc && !seen.has(i.counterparty.toLowerCase()) && seen.add(i.counterparty.toLowerCase()))
       .slice(0, 4)
       .map((i) => i.counterparty);
   }, [history.data]);

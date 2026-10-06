@@ -81,6 +81,8 @@ export async function indexedPayeeHistory(address: Address): Promise<PayeeHistor
     }`,
     { payee: getAddress(address) },
   );
+  // AUSD sent to SettleToUsdc came back as USDC, so it shows as a change to USDC, not a payment.
+  const settle = config.usdc.settle?.toLowerCase();
   return data.PayeeActivity.map((a) => ({
     kind: a.kind === "Sent" ? "sent" : "received",
     amount: BigInt(a.amount),
@@ -88,6 +90,7 @@ export async function indexedPayeeHistory(address: Address): Promise<PayeeHistor
     txHash: a.txHash,
     timestamp: a.timestamp * 1000,
     ...(a.claim_id ? { payout: true } : {}),
+    ...(settle && a.kind === "Sent" && a.counterparty.toLowerCase() === settle ? { toUsdc: true } : {}),
   }));
 }
 

@@ -46,6 +46,13 @@ export type PayeeHistoryItem = {
   timestamp: number; // unix ms
   /** True when this row is a claimed platform payout, not a transfer. Payouts count as income. */
   payout?: boolean;
+  /** True on the "sent" row when the payee changed dollars to USDC: their own money, not a payment to anyone. */
+  toUsdc?: boolean;
+};
+
+export type UsdcSettleResult = TxResult & {
+  /** USDC received, in USDC base units (config.usdc.decimals). */
+  amountOut: bigint;
 };
 
 /** Thrown when a batch or claim doesn't exist. Not worth retrying. */

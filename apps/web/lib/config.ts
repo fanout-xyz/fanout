@@ -29,6 +29,16 @@ export const config = {
     claimEscrow: optionalAddress(process.env.NEXT_PUBLIC_CLAIM_ESCROW_ADDRESS || deployedAddresses.claimEscrow),
   },
 
+  // Taking payouts as USDC via Agora's AUSD/USDC stable-swap pair (smart-contract/contracts/SettleToUsdc.sol).
+  // Defaults are Monad testnet, where the pair's USDC side is a stand-in token with 18 decimals.
+  // Onchain, the option stays hidden until NEXT_PUBLIC_SETTLE_ADDRESS is set (the mock always offers it).
+  usdc: {
+    address: optionalAddress(process.env.NEXT_PUBLIC_USDC_ADDRESS || "0x7BEb5D9DB0d85cBEa543C04f0dE8c23c2176cd9D"),
+    decimals: Number(process.env.NEXT_PUBLIC_USDC_DECIMALS || 18),
+    settle: optionalAddress(process.env.NEXT_PUBLIC_SETTLE_ADDRESS),
+    pair: optionalAddress(process.env.NEXT_PUBLIC_AGORA_PAIR_ADDRESS || "0x1Aa8958Aa34cEC8096EF4381cb335effe977b0ae"),
+  },
+
   // Envio indexer (indexer/) GraphQL endpoint: payout history, tx links, payee activity. Onchain mode only.
   // The free Envio plan gives each deployment its own URL, so update this after an indexer redeploy.
   // "off" = don't use it (fall back to chain reads and this browser's records).
@@ -40,6 +50,11 @@ export const config = {
   // Display name shown to payees ("You've been paid $X by <Platform>").
   platformName: process.env.NEXT_PUBLIC_PLATFORM_NAME || "Demo Creator Platform",
 } as const;
+
+/** Whether payees are offered USDC: always in the mock, onchain once SettleToUsdc is configured. */
+export function usdcSettleEnabled(): boolean {
+  return config.useMock || !!(config.usdc.settle && config.usdc.address && config.usdc.pair);
+}
 
 // The claim signature commits to this address, so it must be the contract that verifies claims.
 export function claimVerifyingContract(): Address {
