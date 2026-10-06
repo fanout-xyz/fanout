@@ -31,11 +31,14 @@ export const config = {
 
   // Taking payouts as USDC via Agora's AUSD/USDC stable-swap pair (smart-contract/contracts/SettleToUsdc.sol).
   // Defaults are Monad testnet, where the pair's USDC side is a stand-in token with 18 decimals.
-  // Onchain, the option stays hidden until NEXT_PUBLIC_SETTLE_ADDRESS is set (the mock always offers it).
+  // The settle contract defaults to the monad-settle-usdc deployment; set NEXT_PUBLIC_SETTLE_ADDRESS=off to hide the option.
   usdc: {
     address: optionalAddress(process.env.NEXT_PUBLIC_USDC_ADDRESS || "0x7BEb5D9DB0d85cBEa543C04f0dE8c23c2176cd9D"),
     decimals: Number(process.env.NEXT_PUBLIC_USDC_DECIMALS || 18),
-    settle: optionalAddress(process.env.NEXT_PUBLIC_SETTLE_ADDRESS),
+    settle:
+      process.env.NEXT_PUBLIC_SETTLE_ADDRESS === "off"
+        ? undefined
+        : optionalAddress(process.env.NEXT_PUBLIC_SETTLE_ADDRESS || "0xA1ac3cBe75697e4Ad7C5fF393EbC3AE9fa67DeC2"),
     pair: optionalAddress(process.env.NEXT_PUBLIC_AGORA_PAIR_ADDRESS || "0x1Aa8958Aa34cEC8096EF4381cb335effe977b0ae"),
   },
 

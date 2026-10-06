@@ -28,11 +28,11 @@ A fourth, standalone contract, **SettleToUsdc**, lets a payee take their dollars
 
 Same claim verifier (`0x5A115F0E14232D658763b8683B6c0da9fBBe5549`) and relayer as `monad-v2`. Deploy parameters: `ignition/parameters/monad-ausd.json`; tx hashes in `ignition/deployments/monad-ausd/journal.jsonl`. Checked on chain after deploy: wiring, verifier and 30-day TTL correct; a real-AUSD deposit, batch and verified claim went through, and a claim with only the link signature was refused.
 
-### SettleToUsdc (USDC for payees): not deployed yet
+### SettleToUsdc (USDC for payees): `monad-settle-usdc`
 
 | Contract | Address |
 | --- | --- |
-| SettleToUsdc | _not deployed yet_ (deployment id `monad-settle-usdc`) |
+| SettleToUsdc | [`0xA1ac3cBe75697e4Ad7C5fF393EbC3AE9fa67DeC2`](https://testnet.monadscan.com/address/0xA1ac3cBe75697e4Ad7C5fF393EbC3AE9fa67DeC2) (deployment id `monad-settle-usdc`; holds `APPROVED_SWAPPER`, [tx](https://testnet.monadscan.com/tx/0xff652220606227ef34bf1d97f299bea64df1c25e2e5bd372e16eddac4cd13ab8)) |
 | Agora AUSD/USDC pair | [`0x1Aa8958Aa34cEC8096EF4381cb335effe977b0ae`](https://testnet.monadscan.com/address/0x1Aa8958Aa34cEC8096EF4381cb335effe977b0ae) (token0 = USDC stand-in, token1 = AUSD, fee 0) |
 | USDC stand-in on the pair (CTK, 18 decimals) | [`0x7BEb5D9DB0d85cBEa543C04f0dE8c23c2176cd9D`](https://testnet.monadscan.com/address/0x7BEb5D9DB0d85cBEa543C04f0dE8c23c2176cd9D) |
 | Agora whitelister (grants `APPROVED_SWAPPER`) | [`0x7c10F56d6f04a51376393a1C3670e966863F6BD5`](https://testnet.monadscan.com/address/0x7c10F56d6f04a51376393a1C3670e966863F6BD5) |
