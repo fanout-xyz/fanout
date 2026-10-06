@@ -419,7 +419,7 @@ The web app still labels the token "AUSD" either way (`config.stablecoin.symbol`
 
 ### Still to do on the web app side
 
-- **Gas for payees.** Claims go through our relayer, which pays the gas. `send` (payee to anyone) still expects the payee's wallet to pay gas.
+- **Gas for payees.** Claims, sends to an address and changes to USDC go through our relayer, which pays the gas. A send is one ERC-3009 `transferWithAuthorization` on AUSD (the `bytes signature` overload) signed by the payee and submitted by `/api/relay/send`, so the payee needs no MON; without a relayer it falls back to a plain `transfer` from the payee's account. Paying someone by email still runs approve, `deposit` and `createBatch` from the payee's own account (Treasury credits `msg.sender`), so the relayer tops that account up with MON first (`/api/relay/fees`).
 - **Rate limiting** on `/api/claim` before a public launch.
 - **History.** Batch lists and payee history need the Envio indexer. It should read the `BatchCreated`, `ClaimOpened`, `Claimed`, `Refunded`, `Deposited` and `Withdrawn` events.
 
@@ -427,5 +427,4 @@ The web app still labels the token "AUSD" either way (`config.stablecoin.symbol`
 
 - When will Agora refill the Monad testnet AUSD faucet? We asked on Discord on 2026-09-29. If there's no answer by around Oct 3, try another channel. Also confirm whether the bounty requires real AUSD in the demo.
 - Is 30 days the right claim expiry? It's a deploy parameter, so changing it means a redeploy but no code change.
-- Who pays gas for payee claims and sends: a relayer, or gas sponsored through Privy?
 - Does the web app expose `refund` and `withdraw`, or do they stay admin-only for the demo? Anyone can call `refund` after expiry, so a script or cron job could handle it.

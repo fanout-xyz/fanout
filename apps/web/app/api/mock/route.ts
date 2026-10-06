@@ -16,7 +16,7 @@ import { fromWire, toWire } from "@/lib/fanout/wire";
  */
 
 // Accounts come first for these methods; the rest take args only.
-const WITH_ACCOUNT = new Set<EngineMethod>(["deposit", "createBatchPayout", "send", "receiveAsUsdc", "refundUnclaimed"]);
+const WITH_ACCOUNT = new Set<EngineMethod>(["deposit", "createBatchPayout", "send", "sendGasless", "receiveAsUsdc", "refundUnclaimed"]);
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 

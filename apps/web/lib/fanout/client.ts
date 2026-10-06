@@ -8,6 +8,7 @@ import type {
   BatchRowInput,
   BatchSummary,
   ClaimInfo,
+  GaslessSendResult,
   Hex,
   PayeeHistoryItem,
   TxResult,
@@ -33,6 +34,12 @@ export interface FanoutClient {
   getPayeeBalance(address: Address): Promise<bigint>;
   send(to: Address, amount: bigint): Promise<TxResult>;
   /**
+   * Sends like `send`, but the payee only signs an authorization (ERC-3009, lib/fanout/erc3009.ts)
+   * and our relayer submits it and pays the fee, so the account needs no MON. Falls back to `send`
+   * when the relayer isn't set up or there's no signed-in session (`gasless: false`).
+   */
+  sendGasless(to: Address, amount: bigint): Promise<GaslessSendResult>;
+  /**
    * Changes `amount` of the signed-in payee's dollars (AUSD) to USDC through Agora's stable-swap pair.
    * The payee signs one authorization; our relayer submits it (see lib/fanout/usdc-settle.ts).
    */
@@ -51,7 +58,10 @@ export type FanoutClientContext = {
   account?: Address;
   /** Required by the onchain client for writes. The mock ignores it. */
   walletClient?: WalletClient;
-  /** Proves who is claiming, so the server can check their email. Onchain client only. */
+  /**
+   * The signed-in session: proves who is claiming, so the server can check their email, and gates the
+   * relayer's fee-free sends and changes to USDC. Onchain client only.
+   */
   getAccessToken?: () => Promise<string | null>;
 };
 

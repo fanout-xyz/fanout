@@ -21,7 +21,8 @@ import type { FanoutClient, FanoutClientContext } from "./client";
 import { indexedBatches, indexedBatchTx, indexedPayeeHistory, indexerEnabled, mergeHistory } from "./indexer";
 import { recallActivity, recallBatchTx, rememberActivity, rememberBatchTx } from "./local-records";
 import { NotFoundError, type BatchSummary, type PayoutStatus } from "./types";
-import { minOutFor, randomSalt, SETTLE_WINDOW_SECONDS, signSettle, type TokenDomain } from "./usdc-settle";
+import { AUTHORIZATION_WINDOW_SECONDS, randomNonce, signAuthorization, type TokenDomain } from "./erc3009";
+import { minOutFor, randomSalt, SETTLE_WINDOW_SECONDS, signSettle } from "./usdc-settle";
 
 /**
  * FanoutClient against the deployed contracts (Treasury, BatchPayout, ClaimEscrow on Monad testnet).
@@ -70,6 +71,12 @@ const REVERT_MESSAGES: Record<string, string> = {
   PairIsPaused: "USDC isn't available right now. Nothing changed. Try again later.",
   InsufficientLiquidity: "There isn't enough USDC available right now. Try a smaller amount.",
   AddressIsNotRole: "USDC isn't available right now. Nothing changed. Try again later.",
+  // AUSD, when a signed send or change to USDC is submitted for the payee. Nothing moves when these happen.
+  UsedOrCanceledAuthorization: "This was already sent. Check your activity before trying again.",
+  ExpiredAuthorization: "That took too long. Nothing was sent. Try again.",
+  InvalidAuthorization: "Something's off with this request. Nothing was sent. Try again.",
+  InvalidSignature: "Something's off with this request. Nothing was sent. Try again.",
+  ERC20InsufficientBalance: "You don't have enough for that. Nothing was sent.",
 };
 
 /** Turns wallet/chain errors into plain sentences; keeps NotFoundError as is. */
@@ -103,6 +110,17 @@ async function guard<T>(fn: () => Promise<T>): Promise<T> {
 export function need(value: Address | undefined, name: string): Address {
   if (!value) throw new Error(`${name} is not configured. Set it in apps/web/.env.local (see .env.example).`);
   return value;
+}
+
+/** Whether this server's relayer can send for payees (GET /api/relay/send). Asked once per page load. */
+let relaySendCheck: Promise<boolean> | null = null;
+function relaySendAvailable(): Promise<boolean> {
+  return (relaySendCheck ??= fetch("/api/relay/send")
+    .then(async (res) => res.ok && ((await res.json()) as { available?: boolean }).available === true)
+    .catch(() => {
+      relaySendCheck = null; // offline: ask again next time
+      return false;
+    }));
 }
 
 /** A token's EIP-712 domain, read from the token itself (ERC-5267). Agora AUSD: "Agora Dollar", "1". */
@@ -147,6 +165,20 @@ export function createOnchainClient(ctx: FanoutClientContext): FanoutClient {
     const receipt = await reader().waitForTransactionReceipt({ hash });
     if (receipt.status !== "success") throw new Error("The transaction failed onchain. Nothing changed.");
     return receipt;
+  }
+
+  /** An AUSD transfer from the signed-in account itself, which pays its own fee in MON. */
+  async function transfer(to: Address, amount: bigint) {
+    const { account } = await signer();
+    const receipt = await write({ address: tokenAddress(), abi: erc20Abi, functionName: "transfer", args: [to, amount] });
+    rememberActivity(activeChain.id, account, {
+      kind: "sent",
+      amount,
+      counterparty: to,
+      txHash: receipt.transactionHash,
+      timestamp: Date.now(),
+    });
+    return { txHash: receipt.transactionHash };
   }
 
   async function statusesOf(signers: readonly Address[]) {
@@ -287,18 +319,54 @@ export function createOnchainClient(ctx: FanoutClientContext): FanoutClient {
     getPayeeBalance: (address) =>
       guard(() => reader().readContract({ address: tokenAddress(), abi: erc20Abi, functionName: "balanceOf", args: [address] })),
 
-    send: (to, amount) =>
+    send: (to, amount) => guard(() => transfer(to, amount)),
+
+    sendGasless: (to, amount) =>
       guard(async () => {
-        const { account } = await signer();
-        const receipt = await write({ address: tokenAddress(), abi: erc20Abi, functionName: "transfer", args: [to, amount] });
-        rememberActivity(activeChain.id, account, {
-          kind: "sent",
-          amount,
-          counterparty: to,
-          txHash: receipt.transactionHash,
-          timestamp: Date.now(),
-        });
-        return { txHash: receipt.transactionHash };
+        // The relayer pays the fee, so like claiming it wants a signed-in session. Without one, send the old way.
+        const accessToken = await ctx.getAccessToken?.();
+        // Ask before signing, so a signature is never made that nobody will submit.
+        if (!accessToken || !(await relaySendAvailable())) return { ...(await transfer(to, amount)), gasless: false };
+        const { wc, account } = await signer();
+        const [held, domain] = await Promise.all([
+          reader().readContract({ address: tokenAddress(), abi: erc20Abi, functionName: "balanceOf", args: [account] }),
+          tokenDomain(tokenAddress()),
+        ]);
+        if (held < amount) throw new Error(`Not enough: your balance is ${usd(held)}, less than ${usd(amount)}.`);
+
+        // One signature: exactly this amount, to exactly this address, once (lib/fanout/erc3009.ts).
+        const auth = {
+          from: account,
+          to,
+          value: amount,
+          validAfter: 0n,
+          validBefore: BigInt(Math.floor(Date.now() / 1000)) + AUTHORIZATION_WINDOW_SECONDS,
+          nonce: randomNonce(),
+        };
+        const signature = await signAuthorization(wc, "TransferWithAuthorization", domain, auth);
+
+        let res: Response;
+        try {
+          res = await fetch("/api/relay/send", {
+            method: "POST",
+            headers: { "content-type": "application/json", authorization: `Bearer ${accessToken}` },
+            body: JSON.stringify({
+              from: auth.from,
+              to: auth.to,
+              value: auth.value.toString(),
+              validAfter: auth.validAfter.toString(),
+              validBefore: auth.validBefore.toString(),
+              nonce: auth.nonce,
+              signature,
+            }),
+          });
+        } catch {
+          throw new Error("Can't reach the server. Check your connection and try again.");
+        }
+        const body = (await res.json().catch(() => ({}))) as { txHash?: Hex; error?: string };
+        if (!res.ok || !body.txHash) throw new Error(body.error ?? "Something went wrong and nothing was sent. Try again.");
+        rememberActivity(activeChain.id, account, { kind: "sent", amount, counterparty: to, txHash: body.txHash, timestamp: Date.now() });
+        return { txHash: body.txHash, gasless: true };
       }),
 
     receiveAsUsdc: (amount) =>
