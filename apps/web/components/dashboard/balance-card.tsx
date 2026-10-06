@@ -6,6 +6,7 @@ import { useTreasuryBalance } from "@/lib/fanout/queries";
 import { formatUsd } from "@/lib/money";
 import { CrossChainDialog } from "./cross-chain-dialog";
 import { DepositDialog } from "./deposit-dialog";
+import { TestDollars } from "./test-dollars";
 
 export function BalanceCard() {
   const balance = useTreasuryBalance();
@@ -38,6 +39,7 @@ export function BalanceCard() {
           <DepositDialog />
         </div>
       </div>
+      <TestDollars />
     </section>
   );
 }

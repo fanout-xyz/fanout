@@ -1,8 +1,9 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { activeChain } from "@/lib/chains";
 import { claimVerifyingContract, config } from "@/lib/config";
 import { generateClaimKey, signClaim } from "./claim-keys";
 import { emptyState, engine, type MockState } from "./mock-engine";
+import { MOCK_TEST_DOLLARS, TEST_DOLLARS_COOLDOWN_MS, TestDollarsCooldown } from "./test-dollars";
 import { NotFoundError } from "./types";
 import { fromWire, toWire } from "./wire";
 
@@ -135,6 +136,51 @@ describe("mock engine", () => {
     expect(engine.getPayeeUsdcBalance(loaded, payee)).toBe(0n);
     engine.receiveAsUsdc(loaded, payee, 1_000_000n);
     expect(engine.getPayeeUsdcBalance(loaded, payee)).toBeGreaterThan(0n);
+  });
+
+  describe("test dollars", () => {
+    afterEach(() => vi.useRealTimers());
+
+    it("credits $10,000 to the payout balance, once per account per day", () => {
+      vi.useFakeTimers({ now: 1_800_000_000_000 });
+      const first = engine.getTestDollars(s, platform);
+      expect(first.amount).toBe(MOCK_TEST_DOLLARS);
+      expect(MOCK_TEST_DOLLARS).toBe(10_000n * 10n ** BigInt(config.stablecoin.decimals));
+      expect(engine.getTreasuryBalance(s, platform)).toBe(MOCK_TEST_DOLLARS);
+
+      vi.advanceTimersByTime(TEST_DOLLARS_COOLDOWN_MS - 1);
+      const err = (() => {
+        try {
+          engine.getTestDollars(s, platform);
+        } catch (e) {
+          return e;
+        }
+      })();
+      expect(err).toBeInstanceOf(TestDollarsCooldown);
+      expect((err as TestDollarsCooldown).retryAt).toBe(1_800_000_000_000 + TEST_DOLLARS_COOLDOWN_MS);
+      expect(engine.getTreasuryBalance(s, platform)).toBe(MOCK_TEST_DOLLARS);
+
+      // Another account isn't held back by this one.
+      engine.getTestDollars(s, friend);
+      expect(engine.getTreasuryBalance(s, friend)).toBe(MOCK_TEST_DOLLARS);
+
+      vi.advanceTimersByTime(1);
+      engine.getTestDollars(s, platform);
+      expect(engine.getTreasuryBalance(s, platform)).toBe(2n * MOCK_TEST_DOLLARS);
+    });
+
+    it("needs a signed-in account", () => {
+      expect(() => engine.getTestDollars(s, undefined)).toThrow(/Sign in/);
+    });
+
+    it("works on state saved before test dollars existed, and saves the limit", () => {
+      const old: Partial<MockState> = emptyState();
+      delete old.testDollars;
+      const loaded = fromWire<MockState>(toWire(old));
+      engine.getTestDollars(loaded, platform);
+      const reloaded = fromWire<MockState>(toWire(loaded));
+      expect(() => engine.getTestDollars(reloaded, platform)).toThrow(TestDollarsCooldown);
+    });
   });
 
   it("round-trips state with bigints through the wire format", () => {

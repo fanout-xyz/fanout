@@ -83,7 +83,7 @@ export function FundingCard() {
       )}
       {funds.data && funds.data.ausd === 0n && (
         <p className="mt-3 text-sm text-muted">
-          To deposit, send testnet AUSD to this address first. Deposits move it into your payout balance.
+          To deposit, get test dollars above or send testnet AUSD to this address first. Deposits move it into your payout balance.
         </p>
       )}
     </section>

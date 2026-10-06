@@ -2,6 +2,7 @@ import { isAddress, keccak256, toHex, type Address, type Hex } from "viem";
 import { activeChain } from "@/lib/chains";
 import { claimVerifyingContract, config } from "@/lib/config";
 import { recoverClaimSigner } from "./claim-keys";
+import { MOCK_TEST_DOLLARS, TEST_DOLLARS_COOLDOWN_MS, TestDollarsCooldown } from "./test-dollars";
 import { NotFoundError, type Batch, type BatchRowInput, type BatchSummary, type ClaimInfo, type PayeeHistoryItem } from "./types";
 
 /**
@@ -22,10 +23,12 @@ export type MockState = {
   /** USDC held, in USDC base units. Optional: state saved before USDC existed has none. */
   usdcBalances?: Record<Address, bigint>;
   history: Record<Address, PayeeHistoryItem[]>;
+  /** account -> when it last got test dollars (unix ms). Optional: older saved state has none. */
+  testDollars?: Record<Address, number>;
 };
 
 export function emptyState(): MockState {
-  return { nextBatchId: 1, treasury: {}, batches: {}, claims: {}, balances: {}, usdcBalances: {}, history: {} };
+  return { nextBatchId: 1, treasury: {}, batches: {}, claims: {}, balances: {}, usdcBalances: {}, history: {}, testDollars: {} };
 }
 
 const key = (a: Address) => a.toLowerCase() as Address;
@@ -175,6 +178,23 @@ export const engine = {
     return { txHash, amountOut };
   },
 
+  /**
+   * Test dollars, once per account per day like the relayer allows onchain. There's no separate account
+   * balance for platforms here (deposits are free), so they go straight to the payout balance.
+   */
+  getTestDollars(s: MockState, account: Address | undefined) {
+    const now = Date.now();
+    const me = requireAccount(account);
+    const given = (s.testDollars ??= {});
+    const last = given[me];
+    if (last !== undefined && now - last < TEST_DOLLARS_COOLDOWN_MS) {
+      throw new TestDollarsCooldown("You've had your test dollars for today. Try again tomorrow.", last + TEST_DOLLARS_COOLDOWN_MS);
+    }
+    given[me] = now;
+    s.treasury[me] = (s.treasury[me] ?? 0n) + MOCK_TEST_DOLLARS;
+    return { txHash: fakeTxHash(), amount: MOCK_TEST_DOLLARS };
+  },
+
   getPayeeUsdcBalance(s: MockState, address: Address): bigint {
     return s.usdcBalances?.[key(address)] ?? 0n;
   },
@@ -238,5 +258,5 @@ export const engine = {
 };
 
 /** Methods that change state (the store saves after these). */
-export const MUTATING = new Set(["deposit", "createBatchPayout", "claim", "send", "sendGasless", "receiveAsUsdc", "refundUnclaimed", "simulateClaims"]);
+export const MUTATING = new Set(["deposit", "createBatchPayout", "claim", "send", "sendGasless", "receiveAsUsdc", "refundUnclaimed", "simulateClaims", "getTestDollars"]);
 export type EngineMethod = keyof typeof engine;

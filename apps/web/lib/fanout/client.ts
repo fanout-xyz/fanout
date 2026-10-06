@@ -11,6 +11,7 @@ import type {
   GaslessSendResult,
   Hex,
   PayeeHistoryItem,
+  TestDollarsResult,
   TxResult,
   UsdcSettleResult,
 } from "./types";
@@ -46,6 +47,13 @@ export interface FanoutClient {
   receiveAsUsdc(amount: bigint): Promise<UsdcSettleResult>;
   /** USDC held, in USDC base units (config.usdc.decimals). */
   getPayeeUsdcBalance(address: Address): Promise<bigint>;
+  /**
+   * Free test dollars for the signed-in account, for trying Fanout (lib/fanout/test-dollars.ts). Onchain,
+   * Monad testnet only: our relayer asks Agora's AUSD faucet to send them to the account, and they're
+   * ready to deposit. The mock credits the payout balance. Once per account per day; a refusal because
+   * of a limit throws TestDollarsCooldown.
+   */
+  getTestDollars(): Promise<TestDollarsResult>;
 
   /** PROPOSED: past batches for the dashboard. Onchain version likely comes from the indexer. */
   listBatches(platform: Address): Promise<BatchSummary[]>;

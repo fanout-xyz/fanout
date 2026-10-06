@@ -20,6 +20,7 @@ import { agoraPairAbi, batchPayoutAbi, claimEscrowAbi, eip712DomainAbi, erc20Abi
 import type { FanoutClient, FanoutClientContext } from "./client";
 import { indexedBatches, indexedBatchTx, indexedPayeeHistory, indexerEnabled, mergeHistory } from "./indexer";
 import { recallActivity, recallBatchTx, rememberActivity, rememberBatchTx } from "./local-records";
+import { TestDollarsCooldown } from "./test-dollars";
 import { NotFoundError, type BatchSummary, type PayoutStatus } from "./types";
 import { AUTHORIZATION_WINDOW_SECONDS, randomNonce, signAuthorization, type TokenDomain } from "./erc3009";
 import { minOutFor, randomSalt, SETTLE_WINDOW_SECONDS, signSettle } from "./usdc-settle";
@@ -432,6 +433,26 @@ export function createOnchainClient(ctx: FanoutClientContext): FanoutClient {
 
     getPayeeUsdcBalance: (address) =>
       guard(() => reader().readContract({ address: usdcAddress(), abi: erc20Abi, functionName: "balanceOf", args: [address] })),
+
+    getTestDollars: async () => {
+      // The server only sends to the signed-in user's own account, so it wants the session.
+      const accessToken = await ctx.getAccessToken?.();
+      if (!accessToken || !ctx.account) throw new Error("Sign in to get test dollars.");
+      let res: Response;
+      try {
+        res = await fetch("/api/relay/test-dollars", {
+          method: "POST",
+          headers: { "content-type": "application/json", authorization: `Bearer ${accessToken}` },
+          body: JSON.stringify({ address: ctx.account }),
+        });
+      } catch {
+        throw new Error("Can't reach the server. Check your connection and try again.");
+      }
+      const body = (await res.json().catch(() => ({}))) as { txHash?: Hex; amount?: string; error?: string; retryAt?: number };
+      if (res.status === 429 && typeof body.retryAt === "number") throw new TestDollarsCooldown(body.error ?? "Try again later.", body.retryAt);
+      if (!res.ok || !body.txHash) throw new Error(body.error ?? "Couldn't get test dollars. Try again.");
+      return { txHash: body.txHash, amount: BigInt(body.amount ?? "0") };
+    },
 
     listBatches: (platform) =>
       guard(async () => {
