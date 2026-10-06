@@ -2,7 +2,9 @@
 
 Three Solidity contracts on Monad testnet that move the money for Fanout: **Treasury**, **BatchPayout** and **ClaimEscrow**. A platform deposits AUSD once, pays out a whole CSV in one transaction, and each payee claims their share with a one-time link. Unclaimed money goes back to the platform after expiry.
 
-**Status:** 17 tests passing, and two deployments on Monad testnet. The web app is connected to the **tAUSD** deployment, and Privy sign-in works. Next up is the first real deposit → batch → claim run. Target: working end to end on testnet by **Oct 6**.
+A fourth, standalone contract, **SettleToUsdc**, lets a payee take their dollars as USDC instead of AUSD, changed instantly and without fees through Agora's AUSD/USDC stable-swap pair. It doesn't touch the three payout contracts.
+
+**Status:** 27 tests passing, and two deployments on Monad testnet. The web app is connected to the **tAUSD** deployment, and Privy sign-in works. Next up is the first real deposit → batch → claim run. Target: working end to end on testnet by **Oct 6**.
 
 ## Deployed addresses (Monad testnet)
 
@@ -25,6 +27,17 @@ Three Solidity contracts on Monad testnet that move the money for Fanout: **Trea
 | BatchPayout | [`0xfc15b4f0811C6F88e8D572cFB01fCE5b166FE3dF`](https://testnet.monadscan.com/address/0xfc15b4f0811C6F88e8D572cFB01fCE5b166FE3dF) |
 
 Same claim verifier (`0x5A115F0E14232D658763b8683B6c0da9fBBe5549`) and relayer as `monad-v2`. Deploy parameters: `ignition/parameters/monad-ausd.json`; tx hashes in `ignition/deployments/monad-ausd/journal.jsonl`. Checked on chain after deploy: wiring, verifier and 30-day TTL correct; a real-AUSD deposit, batch and verified claim went through, and a claim with only the link signature was refused.
+
+### SettleToUsdc (USDC for payees): not deployed yet
+
+| Contract | Address |
+| --- | --- |
+| SettleToUsdc | _not deployed yet_ (deployment id `monad-settle-usdc`) |
+| Agora AUSD/USDC pair | [`0x1Aa8958Aa34cEC8096EF4381cb335effe977b0ae`](https://testnet.monadscan.com/address/0x1Aa8958Aa34cEC8096EF4381cb335effe977b0ae) (token0 = USDC stand-in, token1 = AUSD, fee 0) |
+| USDC stand-in on the pair (CTK, 18 decimals) | [`0x7BEb5D9DB0d85cBEa543C04f0dE8c23c2176cd9D`](https://testnet.monadscan.com/address/0x7BEb5D9DB0d85cBEa543C04f0dE8c23c2176cd9D) |
+| Agora whitelister (grants `APPROVED_SWAPPER`) | [`0x7c10F56d6f04a51376393a1C3670e966863F6BD5`](https://testnet.monadscan.com/address/0x7c10F56d6f04a51376393a1C3670e966863F6BD5) |
+
+On Monad mainnet the same contract would be deployed with AUSD `0x00000000eFE302BEAA2b3e6e1b18d08D69a9012a`, Agora's AUSD/USDC pair `0xf33286E3222D1c829dACeac48c0Ec651F6452470` and that pair's USDC (see Agora's [protocol deployments](https://docs.agora.finance/instant-settlement/protocol-deployments.md)).
 
 ### Previous: `monad-v2` (tAUSD + claim verifier), deployed 2026-09-30
 
@@ -101,22 +114,31 @@ smart-contract/
 │   ├── Treasury.sol              # per-platform AUSD balances: deposit, withdraw, debit, credit
 │   ├── BatchPayout.sol           # one CSV → one transaction → many claims
 │   ├── ClaimEscrow.sol           # holds each payee's AUSD; claim with a signature, refund after expiry
+│   ├── SettleToUsdc.sol          # a payee's AUSD -> USDC through Agora's stable-swap pair, relayer pays gas
 │   ├── interfaces/
 │   │   ├── ITreasury.sol         # what BatchPayout and ClaimEscrow call on Treasury
-│   │   └── IClaimEscrow.sol      # what BatchPayout calls on ClaimEscrow
+│   │   ├── IClaimEscrow.sol      # what BatchPayout calls on ClaimEscrow
+│   │   ├── IERC3009.sol          # AUSD's receiveWithAuthorization (bytes signature)
+│   │   └── IAgoraStableSwapPair.sol # the parts of Agora's pair SettleToUsdc uses
 │   └── test/
-│       └── MockAUSD.sol          # 6-decimal ERC-20 with public mint: tests, and "tAUSD" on testnet
+│       ├── MockAUSD.sol          # 6-decimal ERC-20 with public mint: tests, and "tAUSD" on testnet
+│       ├── MockAUSD3009.sol      # MockAUSD + ERC-3009, same EIP-712 domain as Agora AUSD
+│       ├── MockUSDC.sol          # 18-decimal mintable ERC-20
+│       └── MockStableSwapPair.sol # 1:1 pair with Agora's role check and error names
 ├── test/
-│   └── Fanout.ts                 # node:test + viem; signs claims with the web app's claim-keys.ts
+│   ├── Fanout.ts                 # node:test + viem; signs claims with the web app's claim-keys.ts
+│   └── SettleToUsdc.ts           # signs with the web app's usdc-settle.ts
 ├── ignition/
 │   ├── modules/
 │   │   ├── Fanout.ts             # deploy + wire for real AUSD; exports deployFanout()
-│   │   └── FanoutTestAusd.ts     # deploys tAUSD, then the same contracts for it
+│   │   ├── FanoutTestAusd.ts     # deploys tAUSD, then the same contracts for it
+│   │   └── SettleToUsdc.ts       # deploys SettleToUsdc (parameters: ignition/parameters/monad-settle-usdc.json)
 │   └── deployments/              # deploy records (commit these)
 │       ├── monad-test-ausd/      # active: tAUSD
 │       └── chain-10143/          # real AUSD
 ├── scripts/
-│   └── export-abis.ts            # writes ABIs + addresses to apps/web/lib/fanout/abis/contracts.generated.ts
+│   ├── export-abis.ts            # writes ABIs + addresses to apps/web/lib/fanout/abis/contracts.generated.ts
+│   └── approve-swapper.ts        # grants SettleToUsdc the pair's APPROVED_SWAPPER role, then checks it
 ├── hardhat.config.ts             # compiler settings + monadTestnet network
 ├── tsconfig.json                 # strict; "preserve" modules so tests can import apps/web
 ├── .env.example                  # template for the deployer key
@@ -252,6 +274,28 @@ A claim that has expired but hasn't been refunded can still be claimed. Expiry o
 
 **Errors:** `ZeroAddress`, `ZeroAmount`, `AlreadyWired`, `Unauthorized`, `LengthMismatch`, `ClaimSignerUsed(claimSigner)`, `UnknownClaim`, `NotClaimable(status)`, `BadSignature`, `BadVerification`, `NotExpired(expiresAt)`.
 
+### SettleToUsdc
+
+`contracts/SettleToUsdc.sol`. Changes a payee's AUSD to USDC through Agora's AUSD/USDC stable-swap pair in one transaction that anyone can submit; our relayer submits it and pays the gas. It holds no balance between calls, has no owner and is not upgradeable. It uses `ReentrancyGuard` and `SafeERC20.forceApprove`.
+
+How a settle works:
+
+1. The payee signs one ERC-3009 `ReceiveWithAuthorization` (EIP-712, AUSD's domain: name `Agora Dollar`, version `1`) for `value` AUSD to SettleToUsdc. Its nonce is `keccak256(abi.encode(address(this), salt, minOut))`, so the signature also fixes the least USDC the payee accepts.
+2. `settle` calls AUSD's `receiveWithAuthorization` (the `bytes signature` overload), which checks the signature, the time window and that the nonce is unused, then moves the AUSD in.
+3. It approves the pair and calls `swapExactTokensForTokens(value, minOut, [AUSD, USDC], from, validBefore)`. The pair pays the USDC straight to `from`.
+
+So the USDC can only ever go to the signer, a submitter who lowers `minOut` breaks the signature, and AUSD's nonce check stops replays. The pair only lets `APPROVED_SWAPPER` callers swap, and only the caller (SettleToUsdc) needs the role, not the payee. The web app side is `apps/web/lib/fanout/usdc-settle.ts`, which the tests also sign with.
+
+| Function | Who can call | What it does |
+| --- | --- | --- |
+| `constructor(IERC20 ausd, IERC20 usdc, IAgoraStableSwapPair pair)` | Deployer | Sets the two tokens and the pair |
+| `settle(from, value, validAfter, validBefore, salt, minOut, signature)` | Anyone (our relayer) | Pulls `value` AUSD with the payee's authorization, swaps it, pays the USDC to `from`; returns the USDC amount |
+| `authorizationNonce(salt, minOut)` | View | The ERC-3009 nonce the payee signs |
+
+**Events:** `SettledToUsdc(from indexed, amountIn, amountOut)`.
+
+**Errors:** `ZeroAddress`, `ZeroAmount`, plus whatever AUSD (bad, expired or used authorization) or the pair (`AddressIsNotRole`, `Expired`, `InsufficientOutputAmount`, `InsufficientLiquidity`, `PairIsPaused`, `PriceExpired`) reverts with. Any revert moves nothing.
+
 ## Claim links and signatures
 
 A claim is unlocked by a one-time key that lives only in the payee's link. The web app side is `apps/web/lib/fanout/claim-keys.ts`, and the tests import that exact file, so the contract is checked against the real client code.
@@ -305,13 +349,14 @@ These contracts are unaudited and deployed to testnet only. They assume AUSD is 
 
 ## Tests
 
-`pnpm test` runs `test/Fanout.ts`: 17 tests on Hardhat's in-process network. Each test starts from a fresh snapshot via `loadFixture`.
+`pnpm test` runs `test/Fanout.ts` and `test/SettleToUsdc.ts`: 27 tests on Hardhat's in-process network. Each test starts from a fresh snapshot via `loadFixture`.
 
 | Area | What's covered |
 | --- | --- |
 | Treasury | Deposit raises the balance and emits `Deposited`; a deposit without approval fails; withdraw works and can't exceed the balance; only BatchPayout can `debit` and only ClaimEscrow can `credit`; `wire` works once and only for the owner |
 | BatchPayout | A 150-row batch in one transaction (logs gas); `BatchCreated` with increasing ids; rejects an empty batch, mismatched arrays, 151 rows, a zero amount, a zero signer, a duplicate signer, a reused signer and too little balance; unknown `getBatch` and `getClaim` return zero values; only BatchPayout can `open` |
 | ClaimEscrow | A relayer submits a valid claim and the payee is paid without spending gas; `Claimed` is emitted; rejects a wrong key, a swapped recipient, garbage signature bytes and a second attempt; rejects signatures made for another contract or chain; rejects unknown claims and a zero recipient; refund fails before expiry, works after it, credits the platform (which can then withdraw), and blocks any later claim or refund; an expired claim can still be claimed until someone refunds it |
+| SettleToUsdc | A relayer settles the payee's signed authorization and the USDC goes to the payee, with nothing left in the contract or sent to the relayer; naming a different `from` fails the signature; a lowered `minOut` fails the signature (it's in the nonce); a pair quote below the signed minimum reverts and moves nothing; an expired authorization and a replay are rejected; a contract without `APPROVED_SWAPPER` can't swap; zero amounts and addresses are rejected |
 
 ## Deploying
 
@@ -337,6 +382,17 @@ pnpm hardhat ignition deploy ignition/modules/FanoutTestAusd.ts --network monadT
 
 To try a module without spending MON, run it against the in-process network, for example `pnpm hardhat ignition deploy ignition/modules/FanoutTestAusd.ts`.
 
+### Deploying SettleToUsdc
+
+SettleToUsdc deploys on its own, next to whichever payout deployment the web app uses:
+
+```bash
+pnpm deploy:monad:settle-usdc   # ignition/modules/SettleToUsdc.ts, deployment id monad-settle-usdc
+pnpm approve-swapper            # whitelister.setApprovedSwapper(<SettleToUsdc>), then checks pair.hasRole("APPROVED_SWAPPER", ...)
+```
+
+On testnet the whitelister's `setApprovedSwapper` is open to anyone; on mainnet Agora grants the role. `approve-swapper` reads the address from `ignition/deployments/monad-settle-usdc/deployed_addresses.json` (or `SETTLE_ADDRESS`), and does nothing if the role is already there. Then set `NEXT_PUBLIC_SETTLE_ADDRESS` in the web app (see below) and fill in the table at the top of this README.
+
 ## Web app integration
 
 The web app (`apps/web`) uses the live contracts when `NEXT_PUBLIC_USE_MOCK=false` in `apps/web/.env.local`. It needs no other contract settings:
@@ -346,6 +402,10 @@ The web app (`apps/web`) uses the live contracts when `NEXT_PUBLIC_USE_MOCK=fals
 - The CSV limit in `apps/web/lib/csv.ts` is 150 rows, matching `MAX_ROWS`.
 - Every function name, argument order and return shape the web app uses matches the contracts, so `onchain-client.ts` needed no changes.
 - Privy sign-in creates the embedded wallet itself if the user has none (`apps/web/lib/auth/privy.tsx`), and the dashboard sidebar shows the wallet address.
+
+### USDC for payees
+
+The web app offers "Get it as USDC" after a claim and on the balance page once `NEXT_PUBLIC_SETTLE_ADDRESS` is set (the mock always offers it). `NEXT_PUBLIC_USDC_ADDRESS`, `NEXT_PUBLIC_USDC_DECIMALS` and `NEXT_PUBLIC_AGORA_PAIR_ADDRESS` default to the testnet values above. The payee signs the authorization in the browser and `/api/relay/settle` submits it with `RELAYER_PRIVATE_KEY` (signed-in users only, rate limited, quoted and simulated before any gas is spent). The SettleToUsdc ABI is hand-written in `apps/web/lib/fanout/abis/index.ts`, since `export-abis` reads one payout deployment.
 
 ### Switching deployments
 
