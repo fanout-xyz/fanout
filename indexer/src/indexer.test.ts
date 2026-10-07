@@ -5,6 +5,7 @@ const CHAIN = 10143;
 const [platform, signerA, signerB, payee, friend, stranger] = TestHelpers.Addresses.mockAddresses;
 const ESCROW = "0xf1de07BFfAF3D3D4279399D63049F0C01b8aFD11";
 const TREASURY = "0x245C9b855fd63395BccEC46f7Bac2671e18e79fE";
+const BATCH_PAYOUT = "0xfc15b4f0811C6F88e8D572cFB01fCE5b166FE3dF";
 const EXPIRES = 1_800_000_000n;
 
 const tx = (n: number) => ({ hash: `0x${n.toString(16).padStart(64, "0")}` });
@@ -81,6 +82,8 @@ describe("payout lifecycle", () => {
       refundedAmount: 20n,
       createdAt: 1_790_000_002,
       txHash: tx(2).hash,
+      batchPayout: BATCH_PAYOUT,
+      expiresAt: Number(EXPIRES),
     });
   });
 
@@ -123,5 +126,54 @@ describe("payout lifecycle", () => {
     ]);
     t.expect(await indexer.Payee.get(friend)).toBeUndefined();
     t.expect(await indexer.Payee.get(stranger)).toBeUndefined();
+  });
+});
+
+describe("v3: per-payout claim windows and paying by email", () => {
+  // A payer deposits and pays by email in one relayed transaction (depositAndCreateBatchFor) with a
+  // 10-minute window; a platform pays with the default window. Payout ids start at 1001 on v3.
+  async function run() {
+    const indexer = createTestIndexer();
+    const short = 1_790_000_010n + 600n;
+    await indexer.process({
+      chains: {
+        [CHAIN]: {
+          simulate: [
+            { contract: "Treasury", event: "Deposited", block: at(10), transaction: tx(10), params: { platform: friend, amount: 25n } },
+            { contract: "Treasury", event: "Debited", block: at(10), transaction: tx(10), params: { platform: friend, amount: 25n } },
+            { contract: "ClaimEscrow", event: "ClaimOpened", block: at(10), transaction: tx(10),
+              params: { claimSigner: signerA, platform: friend, batchId: 1001n, amount: 25n, expiresAt: short } },
+            { contract: "BatchPayout", event: "BatchCreated", block: at(10), transaction: tx(10),
+              params: { batchId: 1001n, platform: friend, total: 25n, count: 1n } },
+
+            { contract: "Treasury", event: "Deposited", block: at(11), transaction: tx(11), params: { platform, amount: 10n } },
+            { contract: "Treasury", event: "Debited", block: at(12), transaction: tx(12), params: { platform, amount: 10n } },
+            { contract: "ClaimEscrow", event: "ClaimOpened", block: at(12), transaction: tx(12),
+              params: { claimSigner: signerB, platform, batchId: 1002n, amount: 10n, expiresAt: EXPIRES } },
+            { contract: "BatchPayout", event: "BatchCreated", block: at(12), transaction: tx(12),
+              params: { batchId: 1002n, platform, total: 10n, count: 1n } },
+
+            // The short window passes and refundMany returns the payer's money to their balance.
+            { contract: "Treasury", event: "Credited", block: at(700), transaction: tx(13), params: { platform: friend, amount: 25n } },
+            { contract: "ClaimEscrow", event: "Refunded", block: at(700), transaction: tx(13),
+              params: { claimSigner: signerA, platform: friend, amount: 25n } },
+          ],
+        },
+      },
+    });
+    return { indexer, short };
+  }
+
+  it("keeps each payout's own claim window end", async (t) => {
+    const { indexer, short } = await run();
+    t.expect(await indexer.Batch.getOrThrow("1001")).toMatchObject({ platform_id: friend, total: 25n, rowCount: 1, expiresAt: Number(short), txHash: tx(10).hash });
+    t.expect(await indexer.Batch.getOrThrow("1002")).toMatchObject({ platform_id: platform, total: 10n, expiresAt: Number(EXPIRES) });
+    t.expect(await indexer.Claim.getOrThrow(signerA)).toMatchObject({ expiresAt: Number(short), status: "Refunded" });
+  });
+
+  it("credits a refund to the payer who paid by email, not the relayer", async (t) => {
+    const { indexer } = await run();
+    t.expect(await indexer.Platform.getOrThrow(friend)).toMatchObject({ balance: 25n, totalDeposited: 25n, totalPaidOut: 25n, totalRefunded: 25n });
+    t.expect(await indexer.Batch.getOrThrow("1001")).toMatchObject({ refundedCount: 1, refundedAmount: 25n });
   });
 });
