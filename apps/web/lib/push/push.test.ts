@@ -32,7 +32,7 @@ describe("pushConfig", () => {
 describe("buildPaidPayload", () => {
   it("says who paid how much, in dollars, and opens the balance", () => {
     const p = buildPaidPayload({ amount: 1_234_500_000n, platformName: "Acme Studio" });
-    expect(p).toEqual({ title: "You've been paid", body: "$1,234.50 from Acme Studio. Tap to claim.", url: PAID_URL, tag: "fanout-paid" });
+    expect(p).toEqual({ title: "You've been paid", body: "$1,234.50 from Acme Studio. Tap to see it.", url: PAID_URL, tag: "fanout-paid" });
   });
 
   it("never carries a claim link", () => {
@@ -42,7 +42,7 @@ describe("buildPaidPayload", () => {
   });
 
   it("falls back when the platform has no name", () => {
-    expect(buildPaidPayload({ amount: 1_000_000n, platformName: " " }).body).toBe("$1.00 from a platform. Tap to claim.");
+    expect(buildPaidPayload({ amount: 1_000_000n, platformName: " " }).body).toBe("$1.00 from a platform. Tap to see it.");
   });
 });
 
@@ -120,7 +120,7 @@ describe("sendPaidNotifications", () => {
 
     expect(counts).toEqual({ payees: 2, sent: 1, removed: 2, failed: 1 });
     // Two payments to Ana in one payout: one notification with the total.
-    expect(sent).toEqual([{ endpoint: "https://push.test/1", payload: expect.objectContaining({ body: "$12.50 from Acme. Tap to claim." }) }]);
+    expect(sent).toEqual([{ endpoint: "https://push.test/1", payload: expect.objectContaining({ body: "$12.50 from Acme. Tap to see it." }) }]);
     expect(await store.list(ana)).toEqual([device(1)]);
     // A temporary failure (503) keeps the device.
     expect(await store.list(bo)).toEqual([device(4)]);

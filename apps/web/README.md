@@ -22,7 +22,7 @@ The payout page shows "N of 150 claimed" with the dollars claimed so far. It ref
 
 ## "You've been paid" notifications
 
-Payees can turn on a notification for when a platform pays them: from a prompt in the installed app or after a claim, or with the **Payment notifications** switch on the balance page. When the claim emails for a payout go out, every device a payee turned this on for gets "You've been paid" with "$25.00 from Acme. Tap to claim." (the platform's name and the amount). Tapping it opens their balance, which points them to the claim email. The notification never contains the claim link; the claim key only travels in the email.
+Payees can turn on a notification for when a platform pays them: from a prompt in the installed app or after a claim, or with the **Payment notifications** switch on the balance page. When the claim emails for a payout go out, every device a payee turned this on for gets "You've been paid" with "$25.00 from Acme. Tap to see it." (the platform's name and the amount). Tapping it opens their balance, which points them to the claim email. The notification never contains the claim link; the claim key only travels in the email.
 
 - Subscribing needs the payee's signed-in session. The device is filed under a hash of the email(s) their sign-in has verified (the same hash the payout records), never the email itself, and never an email from the request.
 - On iPhone and iPad, web notifications only work once Fanout is on the Home Screen (iOS 16.4 or later), so in Safari the app says "Add Fanout to your Home Screen first".

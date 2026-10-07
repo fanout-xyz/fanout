@@ -14,7 +14,7 @@ export function buildPaidPayload({ amount, platformName }: { amount: bigint; pla
   const from = platformName.trim() || "a platform";
   return {
     title: "You've been paid",
-    body: `${formatUsd(amount)} from ${from}. Tap to claim.`,
+    body: `${formatUsd(amount)} from ${from}. Tap to see it.`,
     url: PAID_URL,
     // Same tag for every payment: a second payout replaces the first notification instead of stacking.
     tag: "fanout-paid",
