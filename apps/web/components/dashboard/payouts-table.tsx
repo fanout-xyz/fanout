@@ -66,6 +66,7 @@ function BatchRows({ rows }: { rows: BatchSummary[] }) {
             <th scope="col" className="px-6 py-3 font-semibold">Sent</th>
             <th scope="col" className="px-6 py-3 text-right font-semibold">People</th>
             <th scope="col" className="px-6 py-3 font-semibold">Claimed</th>
+            <th scope="col" className="hidden px-6 py-3 font-semibold lg:table-cell">Unclaimed returns</th>
             <th scope="col" className="px-6 py-3 text-right font-semibold">Total</th>
           </tr>
         </thead>
@@ -100,6 +101,9 @@ function BatchRows({ rows }: { rows: BatchSummary[] }) {
                       {b.claimedCount} of {b.rowCount}
                     </span>
                   </div>
+                </td>
+                <td className="hidden px-6 text-muted tabular-nums lg:table-cell">
+                  {b.expiresAt === undefined || b.claimedCount === b.rowCount ? "—" : dateFormat.format(b.expiresAt)}
                 </td>
                 <td className="px-6 text-right font-bold tabular-nums">{formatUsd(b.total)}</td>
               </tr>

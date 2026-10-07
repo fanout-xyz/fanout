@@ -29,14 +29,20 @@ export function cleanNote(note: string | undefined): string | undefined {
   return flat;
 }
 
-function formatDate(unixSeconds: number): string {
-  return new Date(unixSeconds * 1000).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" });
+/** A payout can give as little as minutes to claim; then the date alone isn't enough, so add the time. */
+const SHOW_TIME_WITHIN_MS = 2 * 24 * 60 * 60 * 1000;
+
+function formatDate(unixSeconds: number, now: number): string {
+  const at = new Date(unixSeconds * 1000);
+  const date = at.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" });
+  if (at.getTime() - now >= SHOW_TIME_WITHIN_MS) return date;
+  return `${date}, ${at.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "UTC" })} UTC`;
 }
 
-export function claimEmail({ platformName, amount, link, balanceUrl, note, expiresAt, reminder }: ClaimEmailInput) {
+export function claimEmail({ platformName, amount, link, balanceUrl, note, expiresAt, reminder }: ClaimEmailInput, now = Date.now()) {
   const usd = formatUsd(amount);
   const safeNote = cleanNote(note);
-  const by = expiresAt ? formatDate(expiresAt) : null;
+  const by = expiresAt ? formatDate(expiresAt, now) : null;
   const balanceHost = balanceUrl ? new URL(balanceUrl).host : null;
   const subject = `${reminder ? "Reminder: " : ""}${platformName} sent you ${usd}`;
 

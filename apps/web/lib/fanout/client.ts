@@ -11,6 +11,10 @@ import type {
   GaslessSendResult,
   Hex,
   PayeeHistoryItem,
+  PayFromAccountResult,
+  PayoutOptions,
+  PayoutResult,
+  RefundResult,
   TestDollarsResult,
   TxResult,
   UsdcSettleResult,
@@ -27,7 +31,22 @@ import type {
 export interface FanoutClient {
   getTreasuryBalance(platform: Address): Promise<bigint>;
   deposit(amount: bigint): Promise<TxResult>;
-  createBatchPayout(rows: BatchRowInput[]): Promise<{ batchId: string; txHash: Hex }>;
+  /** Pays from the payout balance. options.claimWindowSeconds needs the v3 contracts (claimWindowEnabled()). */
+  createBatchPayout(rows: BatchRowInput[], options?: PayoutOptions): Promise<PayoutResult>;
+  /**
+   * Pays from the signed-in account's own AUSD instead of the payout balance: deposit the total,
+   * then pay out (paying someone by email). With the v3 contracts and our relayer, the account
+   * only signs two authorizations (lib/fanout/batch-authorization.ts, erc3009.ts) and the relayer
+   * submits both in one transaction, so it needs no MON (`gasless: true`). Otherwise the account
+   * sends approve, deposit and createBatch itself.
+   */
+  payFromAccount(rows: BatchRowInput[], options?: PayoutOptions): Promise<PayFromAccountResult>;
+  /**
+   * Returns a payout's unclaimed money to the platform's balance once its claim window has passed
+   * (ClaimEscrow.refundMany on v3, one refund per row before). The signed-in account sends it and
+   * pays the fee. Throws if nothing has expired yet.
+   */
+  refundExpired(batchId: string): Promise<RefundResult>;
   getBatch(batchId: string): Promise<Batch>;
   getClaim(claimSigner: Address): Promise<ClaimInfo>;
   /** signature: see lib/fanout/claim-keys.ts for exactly what is signed. */

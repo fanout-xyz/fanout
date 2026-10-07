@@ -1,4 +1,5 @@
 import { getAddress, isAddress, zeroAddress, type Address } from "viem";
+import { generatedPayoutsV3 } from "./fanout/abis";
 import { deployedAddresses } from "./fanout/abis/contracts.generated";
 
 // NEXT_PUBLIC_* values are inlined at build time only when read as literal
@@ -28,6 +29,12 @@ export const config = {
     batchPayout: optionalAddress(process.env.NEXT_PUBLIC_BATCH_PAYOUT_ADDRESS || deployedAddresses.batchPayout),
     claimEscrow: optionalAddress(process.env.NEXT_PUBLIC_CLAIM_ESCROW_ADDRESS || deployedAddresses.claimEscrow),
   },
+
+  // Whether the payout contracts are v3 (smart-contract/README.md): per-payout claim windows and
+  // paying by email with no MON. On when contracts.generated.ts comes from a v3 deployment;
+  // NEXT_PUBLIC_PAYOUT_CONTRACTS=v3 turns it on for v3 addresses set through the env vars above,
+  // and any other value (e.g. "v2") forces it off.
+  payoutsV3: process.env.NEXT_PUBLIC_PAYOUT_CONTRACTS ? process.env.NEXT_PUBLIC_PAYOUT_CONTRACTS === "v3" : generatedPayoutsV3,
 
   // Taking payouts as USDC via Agora's AUSD/USDC stable-swap pair (smart-contract/contracts/SettleToUsdc.sol).
   // Defaults are Monad testnet, where the pair's USDC side is a stand-in token with 18 decimals.
@@ -60,6 +67,11 @@ export const config = {
 /** Whether payees are offered USDC: always in the mock, onchain once SettleToUsdc is configured. */
 export function usdcSettleEnabled(): boolean {
   return config.useMock || !!(config.usdc.settle && config.usdc.address && config.usdc.pair);
+}
+
+/** Whether a payout can choose when unclaimed money returns: always in the mock, onchain with the v3 contracts. */
+export function claimWindowEnabled(): boolean {
+  return config.useMock || config.payoutsV3;
 }
 
 // The claim signature commits to this address, so it must be the contract that verifies claims.

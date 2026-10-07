@@ -12,8 +12,15 @@ export const erc20Abi = [
   { type: "function", name: "transfer", stateMutability: "nonpayable", inputs: [{ name: "to", type: "address" }, { name: "amount", type: "uint256" }], outputs: [{ type: "bool" }] },
 ] as const;
 
+import { batchPayoutAbi as generatedBatchPayoutAbi } from "./contracts.generated";
+
 // Treasury, BatchPayout and ClaimEscrow ABIs come from the Monad testnet deployment.
 export { batchPayoutAbi, claimEscrowAbi, treasuryAbi } from "./contracts.generated";
+// What the v3 contracts add, usable before contracts.generated.ts is regenerated from them.
+export { batchPayoutV3Abi, claimEscrowV3Abi, treasuryV3Abi } from "./v3";
+
+/** True once contracts.generated.ts comes from a v3 deployment (export-abis monad-v3). */
+export const generatedPayoutsV3 = (generatedBatchPayoutAbi as readonly { name?: string }[]).some((x) => x.name === "createBatchFor");
 
 /**
  * SettleToUsdc (smart-contract/contracts/SettleToUsdc.sol). Hand-written because it is deployed on
@@ -106,6 +113,20 @@ export const transferWithAuthorizationAbi = [
       { name: "balance", type: "uint256" },
       { name: "needed", type: "uint256" },
     ],
+  },
+] as const;
+
+/** ERC-3009: whether `authorizer` has used (or cancelled) `nonce`. */
+export const authorizationStateAbi = [
+  {
+    type: "function",
+    name: "authorizationState",
+    stateMutability: "view",
+    inputs: [
+      { name: "authorizer", type: "address" },
+      { name: "nonce", type: "bytes32" },
+    ],
+    outputs: [{ type: "bool" }],
   },
 ] as const;
 

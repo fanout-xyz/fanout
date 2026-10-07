@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import posthog from "posthog-js";
-import { useMemo, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { toast } from "sonner";
 import { zeroHash } from "viem";
 import { StatusChip } from "@/components/status-chip";
 import { Spinner } from "@/components/tx-progress";
@@ -25,7 +26,7 @@ import { buildClaimLink } from "@/lib/fanout/claim-keys";
 import { loadAllClaims, subscribeClaims, type StoredClaim } from "@/lib/fanout/claim-link-store";
 import type { PayoutStatus } from "@/lib/fanout/client";
 import { claimProgress } from "@/lib/claim-progress";
-import { useBatch, useMockExpireUnclaimed } from "@/lib/fanout/queries";
+import { useBatch, useMockExpireUnclaimed, useRefundExpired } from "@/lib/fanout/queries";
 import { formatUsd } from "@/lib/money";
 import { cn } from "@/lib/utils";
 import { ClaimCounter } from "./claim-counter";
@@ -143,6 +144,7 @@ export function BatchDetail({ id }: { id: string }) {
           <p className="mt-1 text-muted">
             Sent {dateFormat.format(b.createdAt)} · {rows.length} {rows.length === 1 ? "person" : "people"} · one transaction
           </p>
+          {b.expiresAt !== undefined && counts.sent > 0 && <ClaimExpiry expiresAt={b.expiresAt} />}
         </div>
         <div className="flex flex-wrap items-center gap-3">
           {hasTx &&
@@ -172,6 +174,10 @@ export function BatchDetail({ id }: { id: string }) {
           Claim links and emails for this payout aren&apos;t stored in this browser. They&apos;re kept only on the device that
           created the payout.
         </p>
+      )}
+
+      {b.expiresAt !== undefined && counts.sent > 0 && (
+        <ReturnUnclaimed batchId={id} expiresAt={b.expiresAt} waiting={counts.sent} amount={sum("sent")} />
       )}
 
       <UnclaimedReminder
@@ -305,6 +311,63 @@ export function BatchDetail({ id }: { id: string }) {
           </Dialog>
         </div>
       )}
+    </div>
+  );
+}
+
+/** The current time, refreshed every `ms`, so a short claim window visibly runs out without a reload. */
+function useNow(ms: number) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), ms);
+    return () => clearInterval(t);
+  }, [ms]);
+  return now;
+}
+
+/** "Unclaimed money returns to your balance after Oct 9, 3:10 PM", or that it can now. */
+function ClaimExpiry({ expiresAt }: { expiresAt: number }) {
+  const now = useNow(15_000);
+  return (
+    <p className="mt-1 text-sm text-muted">
+      {now >= expiresAt
+        ? `Claim window ended ${dateFormat.format(expiresAt)}. Unclaimed money can return to your balance.`
+        : `Unclaimed money can return to your balance after ${dateFormat.format(expiresAt)}.`}
+    </p>
+  );
+}
+
+/**
+ * Once the claim window has passed, returns what nobody claimed to the payout balance
+ * (ClaimEscrow.refundMany). The platform's own account sends it, like the payout itself.
+ */
+function ReturnUnclaimed({ batchId, expiresAt, waiting, amount }: { batchId: string; expiresAt: number; waiting: number; amount: bigint }) {
+  const now = useNow(15_000);
+  const refund = useRefundExpired(batchId);
+  if (now < expiresAt) return null;
+  return (
+    <div role="status" className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-line bg-card-raised px-4 py-3">
+      <p className="text-sm">
+        {waiting} {waiting === 1 ? "person" : "people"} didn&apos;t claim in time. Return {formatUsd(amount)} to your balance; their links
+        stop working.
+      </p>
+      <div className="flex flex-col items-end gap-1">
+        <Button
+          size="sm"
+          disabled={refund.isPending}
+          onClick={() =>
+            refund.mutate(undefined, {
+              onSuccess: ({ refunded }) => {
+                posthog.capture("unclaimed_payouts_returned", { recipient_count: refunded, total_usd: Number(amount) / 1e6 });
+                toast.success(`Returned ${formatUsd(amount)} to your balance.`);
+              },
+            })
+          }
+        >
+          {refund.isPending ? <Spinner className="size-4" /> : null} Return unclaimed money
+        </Button>
+        {refund.isError && <p className="text-sm text-danger">{refund.error.message}</p>}
+      </div>
     </div>
   );
 }

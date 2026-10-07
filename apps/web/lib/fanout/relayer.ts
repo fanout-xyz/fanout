@@ -1,10 +1,20 @@
 import "server-only";
-import { createPublicClient, createWalletClient, http, isAddress, isHex, parseEther, parseEventLogs, zeroAddress, type Address, type Hex } from "viem";
+import { createPublicClient, createWalletClient, http, isAddress, isHex, parseEther, parseEventLogs, zeroAddress, zeroHash, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { activeChain } from "@/lib/chains";
 import { privyClient, SessionExpired, verifiedUser } from "@/lib/auth/privy-server";
 import { config } from "@/lib/config";
-import { agoraPairAbi, claimEscrowAbi, erc20Abi, settleToUsdcAbi, transferWithAuthorizationAbi } from "./abis";
+import {
+  agoraPairAbi,
+  authorizationStateAbi,
+  batchPayoutV3Abi,
+  claimEscrowAbi,
+  erc20Abi,
+  settleToUsdcAbi,
+  transferWithAuthorizationAbi,
+  treasuryAbi,
+} from "./abis";
+import { BATCH_AUTHORIZATION_WINDOW_SECONDS } from "./batch-authorization";
 import { AUTHORIZATION_WINDOW_SECONDS } from "./erc3009";
 import { recoverClaimSigner, signVerification } from "./claim-keys";
 import { ALL_CONTRACT_ERRORS, friendlyChainError, need } from "./onchain-client";
@@ -13,8 +23,9 @@ import { SETTLE_WINDOW_SECONDS } from "./usdc-settle";
 
 /**
  * Server-side relayer: submits ClaimEscrow.claim() and pays its gas, so payees with
- * brand-new accounts (no MON) can claim. It also submits payees' signed sends (relaySend) and
- * changes to USDC (relaySettle), so sending needs no MON either. After a claim it tops the
+ * brand-new accounts (no MON) can claim. It also submits payees' signed sends (relaySend),
+ * changes to USDC (relaySettle) and, with the v3 contracts, payments by email
+ * (relayEmailPayment), so none of those need MON either. After a claim it tops the
  * recipient up with a little MON (only if they're nearly empty) for anything they do from their
  * account directly.
  *
@@ -145,8 +156,9 @@ async function topUp(
 }
 
 /**
- * Paying someone by email takes three transactions from the payee's own account (approve,
- * deposit, create the payout), about 0.04 MON at testnet prices. Before that, top the account up
+ * Before the v3 contracts, paying someone by email takes three transactions from the payee's own
+ * account (approve, deposit, create the payout), about 0.04 MON at testnet prices. (With v3,
+ * relayEmailPayment submits it all and the account needs no MON.) Before that, top the account up
  * so it can afford them. Only for a signed-in user whose account holds the dollars they're sending,
  * and at most once per account every few minutes, so this can't be used to drain the relayer.
  */
@@ -256,6 +268,115 @@ export async function relaySend(input: {
     const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
     if (receipt.status !== "success") throw new Error("The payment failed. Nothing was sent. Try again.");
     return { txHash };
+  } catch (err) {
+    if (err instanceof ClaimRefused) throw err;
+    throw friendlyChainError(err);
+  }
+}
+
+/** Whether relayEmailPayment can run here: the v3 contracts and the relayer are set up. */
+export function relayEmailPaymentConfigured(): boolean {
+  return config.payoutsV3 && relayerAccount() !== null && privyClient() !== null;
+}
+
+/** Paying by email is one person; the relayer pays the gas, so it doesn't relay bigger payouts. */
+const EMAIL_PAYMENT_ROWS = 1;
+
+const bytes32 = (v: unknown): v is Hex => typeof v === "string" && isHex(v) && v.length === 66;
+const signatureHex = (v: unknown): v is Hex => typeof v === "string" && isHex(v) && v.length >= 132;
+
+/**
+ * Paying someone by email from an account that holds only AUSD (v3 contracts): submits
+ * BatchPayout.depositAndCreateBatchFor and pays its gas. The account signed two things: an ERC-3009
+ * ReceiveWithAuthorization moving exactly the payment's total into the Treasury for itself, and an
+ * EIP-712 CreateBatch fixing the claim signer, amount, email hash, claim window, a one-time nonce and
+ * a deadline (lib/fanout/batch-authorization.ts). So the relayer can't change who can claim, how
+ * much, or for how long, and can't use either signature twice. A refund goes back to the account's
+ * own Treasury balance. Signed-in users only; balance and deadlines are checked before any gas is
+ * spent. Throws RelayUnavailable when this server can't do it, so the client can pay the old way.
+ *
+ * If the deposit authorization was already used on its own (someone submitted it first), the money
+ * is already in the account's Treasury balance, so this finishes with createBatchFor instead.
+ */
+export async function relayEmailPayment(input: {
+  body: Record<string, unknown>;
+  accessToken: string | null;
+}): Promise<{ txHash: Hex; batchId: string }> {
+  const { body, accessToken } = input;
+  const { platform, claimSigners, emailHashes, nonce, signature } = body;
+  const deposit = (body.deposit ?? {}) as Record<string, unknown>;
+  const [claimWindow, deadline, validAfter, validBefore] = [uint(body.claimWindow), uint(body.deadline), uint(deposit.validAfter), uint(deposit.validBefore)];
+  const amounts = Array.isArray(body.amounts) ? body.amounts.map(uint) : [];
+  const malformed = () => new ClaimRefused("Something's off with this request. Nothing was sent. Try again.");
+
+  if (typeof platform !== "string" || !isAddress(platform)) throw new ClaimRefused("Your account isn't ready. Sign in again.");
+  if (!Array.isArray(claimSigners) || !Array.isArray(emailHashes) || claimSigners.length !== EMAIL_PAYMENT_ROWS) throw malformed();
+  if (amounts.length !== EMAIL_PAYMENT_ROWS || emailHashes.length !== EMAIL_PAYMENT_ROWS) throw malformed();
+  if (!claimSigners.every((s) => typeof s === "string" && isAddress(s) && s !== zeroAddress)) throw malformed();
+  // Paying by email: every row is locked to an email.
+  if (!emailHashes.every((h) => bytes32(h) && h !== zeroHash)) throw malformed();
+  if (amounts.some((a) => a === null || a === 0n)) throw new ClaimRefused("Enter an amount to send.");
+  if (claimWindow === null || deadline === null || validAfter === null || validBefore === null) throw malformed();
+  if (!bytes32(nonce) || !bytes32(deposit.nonce) || !signatureHex(signature) || !signatureHex(deposit.signature)) throw malformed();
+  if (!accessToken) throw new ClaimRefused("Sign in to send money.");
+
+  const now = BigInt(Math.floor(Date.now() / 1000));
+  // Room to land, and no long-lived authorizations sitting around.
+  const tooLate = (t: bigint, window: bigint) => t < now + 30n || t > now + window + 60n;
+  if (validAfter > now || tooLate(validBefore, AUTHORIZATION_WINDOW_SECONDS) || tooLate(deadline, BATCH_AUTHORIZATION_WINDOW_SECONDS)) {
+    throw new ClaimRefused("That took too long. Nothing was sent. Try again.");
+  }
+
+  const account = relayerAccount();
+  const privyApi = privyClient();
+  if (!config.payoutsV3 || !account || !privyApi) {
+    if (config.payoutsV3) console.error("[relay] RELAYER_PRIVATE_KEY or PRIVY_APP_SECRET is not set");
+    throw new RelayUnavailable("Sending by email without a fee isn't available right now.");
+  }
+  await verifiedUser(privyApi, accessToken); // throws SessionExpired
+
+  const publicClient = createPublicClient({ chain: activeChain, transport: http() });
+  const wallet = createWalletClient({ account, chain: activeChain, transport: http() });
+  const ausd = need(config.stablecoin.address, "NEXT_PUBLIC_AUSD_ADDRESS");
+  const treasury = need(config.contracts.treasury, "NEXT_PUBLIC_TREASURY_ADDRESS");
+  const batchPayout = need(config.contracts.batchPayout, "NEXT_PUBLIC_BATCH_PAYOUT_ADDRESS");
+  const from = platform as Address;
+  const total = (amounts as bigint[]).reduce((sum, a) => sum + a, 0n);
+  const rows = [claimSigners as Address[], amounts as bigint[], emailHashes as Hex[]] as const;
+  const auth = { nonce: nonce as Hex, deadline, signature: signature as Hex };
+  const abi = [...batchPayoutV3Abi, ...authorizationErrors, ...ALL_CONTRACT_ERRORS];
+
+  try {
+    const [held, deposited] = await Promise.all([
+      publicClient.readContract({ address: ausd, abi: erc20Abi, functionName: "balanceOf", args: [from] }),
+      publicClient.readContract({ address: ausd, abi: authorizationStateAbi, functionName: "authorizationState", args: [from, deposit.nonce as Hex] }).catch(() => false),
+    ]);
+
+    // Dry run first: a bad signature, a used authorization or a reused claim link reverts here for free.
+    let txHash: Hex;
+    if (deposited) {
+      // The deposit went through on its own already; its money waits in the account's Treasury balance.
+      const balance = await publicClient.readContract({ address: treasury, abi: treasuryAbi, functionName: "balanceOf", args: [from] });
+      if (balance < total) throw new ClaimRefused("This was already sent. Check your activity before trying again.");
+      const { request } = await publicClient.simulateContract({ account, address: batchPayout, abi, functionName: "createBatchFor", args: [from, ...rows, claimWindow, auth] });
+      txHash = await wallet.writeContract(request);
+    } else {
+      if (held < total) throw new ClaimRefused("You don't have enough for that. Nothing was sent.");
+      const depositArg = { validAfter, validBefore, nonce: deposit.nonce as Hex, signature: deposit.signature as Hex };
+      const { request } = await publicClient.simulateContract({
+        account,
+        address: batchPayout,
+        abi,
+        functionName: "depositAndCreateBatchFor",
+        args: [from, ...rows, claimWindow, auth, depositArg],
+      });
+      txHash = await wallet.writeContract(request);
+    }
+    const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
+    if (receipt.status !== "success") throw new Error("The payment failed. Nothing was sent. Try again.");
+    const [event] = parseEventLogs({ abi: batchPayoutV3Abi, eventName: "BatchCreated", logs: receipt.logs });
+    if (!event) throw new Error("The payment went through, but its number couldn't be read. Check your activity.");
+    return { txHash, batchId: event.args.batchId.toString() };
   } catch (err) {
     if (err instanceof ClaimRefused) throw err;
     throw friendlyChainError(err);

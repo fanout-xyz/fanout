@@ -3,7 +3,8 @@ import { activeChain } from "@/lib/chains";
 import { claimVerifyingContract, config } from "@/lib/config";
 import { recoverClaimSigner } from "./claim-keys";
 import { MOCK_TEST_DOLLARS, TEST_DOLLARS_COOLDOWN_MS, TestDollarsCooldown } from "./test-dollars";
-import { NotFoundError, type Batch, type BatchRowInput, type BatchSummary, type ClaimInfo, type PayeeHistoryItem } from "./types";
+import { DEFAULT_CLAIM_WINDOW_SECONDS, validClaimWindow } from "@/lib/claim-window";
+import { NotFoundError, type Batch, type BatchRowInput, type BatchSummary, type ClaimInfo, type PayeeHistoryItem, type PayoutOptions } from "./types";
 
 /**
  * The mock "contracts": pure state + rules, no I/O. Runs on the dev server behind
@@ -12,6 +13,9 @@ import { NotFoundError, type Batch, type BatchRowInput, type BatchSummary, type 
  */
 
 type MockBatch = Batch & { platform: Address };
+
+/** Batches saved before claim windows existed have no expiresAt: they had the default 30 days. */
+const expiryOf = (b: MockBatch) => b.expiresAt ?? b.createdAt + DEFAULT_CLAIM_WINDOW_SECONDS * 1000;
 
 export type MockState = {
   nextBatchId: number;
@@ -76,8 +80,11 @@ export const engine = {
     return { txHash: fakeTxHash() };
   },
 
-  createBatchPayout(s: MockState, account: Address | undefined, rows: BatchRowInput[]) {
+  /** Same rules as BatchPayout.createBatch, including the claim window bounds. */
+  createBatchPayout(s: MockState, account: Address | undefined, rows: BatchRowInput[], options: PayoutOptions = {}) {
     const me = requireAccount(account);
+    const window = options.claimWindowSeconds ?? DEFAULT_CLAIM_WINDOW_SECONDS;
+    if (!validClaimWindow(window)) throw new Error("Unclaimed money can return after 5 minutes at the earliest and 90 days at the latest.");
     if (rows.length === 0) throw new Error("A payout needs at least one row.");
     if (rows.some((r) => r.amount <= 0n)) throw new Error("Every amount must be more than $0.");
     const total = rows.reduce((sum, r) => sum + r.amount, 0n);
@@ -91,11 +98,13 @@ export const engine = {
 
     const id = String(s.nextBatchId++);
     const txHash = fakeTxHash();
+    const createdAt = Date.now();
     s.treasury[me] -= total;
     s.batches[id] = {
       id,
       platform: me,
-      createdAt: Date.now(),
+      createdAt,
+      expiresAt: createdAt + window * 1000,
       total,
       txHash,
       rows: rows.map((r) => ({ ...r, claimSigner: key(r.claimSigner), status: "sent" as const })),
@@ -104,10 +113,46 @@ export const engine = {
     return { batchId: id, txHash };
   },
 
+  /**
+   * Same rules as BatchPayout.depositAndCreateBatchFor submitted by our relayer: the account's own
+   * dollars are deposited and paid out in one go, all or nothing, and the account pays no fee.
+   */
+  payFromAccount(s: MockState, account: Address | undefined, rows: BatchRowInput[], options: PayoutOptions = {}) {
+    const me = requireAccount(account);
+    const total = rows.reduce((sum, r) => sum + r.amount, 0n);
+    if (total > (s.balances[me] ?? 0n)) throw new Error("You don't have enough for that. Nothing was sent.");
+    const before = s.treasury[me] ?? 0n;
+    s.treasury[me] = before + total;
+    try {
+      const created = engine.createBatchPayout(s, me, rows, options);
+      s.balances[me] -= total;
+      return { ...created, gasless: true };
+    } catch (err) {
+      s.treasury[me] = before;
+      throw err;
+    }
+  },
+
+  /** Same rules as ClaimEscrow.refundMany: only rows still waiting and past the claim window. Anyone can call it. */
+  refundExpired(s: MockState, _account: Address | undefined, batchId: string) {
+    const b = s.batches[batchId];
+    if (!b) throw new NotFoundError(`Payout #${batchId} doesn't exist.`);
+    if (Date.now() < expiryOf(b)) throw new Error("This payout's claim links still work. Unclaimed money can return once they expire.");
+    let refunded = 0;
+    for (const row of b.rows) {
+      if (row.status !== "sent") continue;
+      row.status = "refunded";
+      s.treasury[b.platform] = (s.treasury[b.platform] ?? 0n) + row.amount;
+      refunded++;
+    }
+    if (refunded === 0) throw new Error("Nothing is waiting to be claimed in this payout.");
+    return { txHash: fakeTxHash(), refunded };
+  },
+
   getBatch(s: MockState, batchId: string): Batch {
     const b = s.batches[batchId];
     if (!b) throw new NotFoundError(`Payout #${batchId} doesn't exist.`);
-    return { id: b.id, createdAt: b.createdAt, total: b.total, txHash: b.txHash, rows: b.rows };
+    return { id: b.id, createdAt: b.createdAt, expiresAt: expiryOf(b), total: b.total, txHash: b.txHash, rows: b.rows };
   },
 
   getClaim(s: MockState, claimSigner: Address): ClaimInfo {
@@ -207,6 +252,7 @@ export const engine = {
       .map((b) => ({
         id: b.id,
         createdAt: b.createdAt,
+        expiresAt: expiryOf(b),
         total: b.total,
         txHash: b.txHash,
         rowCount: b.rows.length,
@@ -258,5 +304,5 @@ export const engine = {
 };
 
 /** Methods that change state (the store saves after these). */
-export const MUTATING = new Set(["deposit", "createBatchPayout", "claim", "send", "sendGasless", "receiveAsUsdc", "refundUnclaimed", "simulateClaims", "getTestDollars"]);
+export const MUTATING = new Set(["deposit", "createBatchPayout", "payFromAccount", "refundExpired", "claim", "send", "sendGasless", "receiveAsUsdc", "refundUnclaimed", "simulateClaims", "getTestDollars"]);
 export type EngineMethod = keyof typeof engine;

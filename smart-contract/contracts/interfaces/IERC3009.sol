@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-/// The ERC-3009 call SettleToUsdc uses. Agora AUSD implements it (the bytes-signature overload).
+/// The ERC-3009 call SettleToUsdc and Treasury.depositWithAuthorization use. Agora AUSD implements it (the bytes-signature overload).
 interface IERC3009 {
     function receiveWithAuthorization(
         address from,

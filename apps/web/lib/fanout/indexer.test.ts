@@ -3,9 +3,14 @@ import type { Hex } from "viem";
 import { indexedBatches, indexedBatchTx, indexedPayeeHistory, mergeHistory } from "./indexer";
 import type { PayeeHistoryItem } from "./types";
 
-vi.mock("@/lib/config", () => ({
-  config: { useMock: false, indexerUrl: "https://indexer.test/v1/graphql", usdc: { settle: "0x5e771e5e771e5e771e5e771e5e771e5e771e5e77" } },
+const mockConfig = vi.hoisted(() => ({
+  useMock: false,
+  payoutsV3: false,
+  indexerUrl: "https://indexer.test/v1/graphql",
+  contracts: { batchPayout: "0xb47c4b47c4b47c4b47c4b47c4b47c4b47c4b47c4" },
+  usdc: { settle: "0x5e771e5e771e5e771e5e771e5e771e5e771e5e77" },
 }));
+vi.mock("@/lib/config", () => ({ config: mockConfig }));
 
 const platform = "0x978D459587b9807375E7A02ff403BED7E68d0b0e";
 const payee = "0xDb46e858d1F035dd097B20E186B5b8995B71FDdE";
@@ -32,6 +37,34 @@ describe("indexedBatches", () => {
     // The indexer stores checksummed addresses, so a lowercase input is normalised before querying.
     const sent = JSON.parse(String((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body));
     expect(sent.variables.platform).toBe(platform);
+  });
+
+  it("with the v3 contracts, asks only for the configured BatchPayout's payouts, with their expiry", async () => {
+    mockConfig.payoutsV3 = true;
+    try {
+      const fetchMock = respond({
+        data: {
+          Batch: [{ id: "1002", total: "5", rowCount: 1, claimedCount: 0, createdAt: 1790716629, txHash: tx(9), expiresAt: 1790717229 }],
+          latest: [{ id: "1002" }],
+        },
+      });
+      const { batches, latestId } = await indexedBatches(platform);
+      expect(batches[0]).toMatchObject({ id: "1002", expiresAt: 1_790_717_229_000 });
+      expect(latestId).toBe(1002);
+      const sent = JSON.parse(String((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body));
+      expect(sent.variables.batchPayout).toBe("0xb47C4B47c4b47c4b47c4b47C4b47c4b47C4B47c4");
+      expect(sent.query).toContain("batchPayout: { _eq: $batchPayout }");
+    } finally {
+      mockConfig.payoutsV3 = false;
+    }
+  });
+
+  it("before the v3 contracts, sends the query the older indexer understands", async () => {
+    const fetchMock = respond({ data: { Batch: [], latest: [] } });
+    await indexedBatches(platform);
+    const sent = JSON.parse(String((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body));
+    expect(sent.query).not.toContain("batchPayout");
+    expect(sent.query).not.toContain("expiresAt");
   });
 
   it("treats an empty indexer as having seen no batches", async () => {
