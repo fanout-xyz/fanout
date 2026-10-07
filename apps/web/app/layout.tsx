@@ -1,7 +1,9 @@
 import type { Metadata, Viewport } from "next";
 import { Bricolage_Grotesque, Plus_Jakarta_Sans } from "next/font/google";
+import { Analytics } from "@vercel/analytics/next";
 import "./globals.css";
 import { Providers } from "./providers";
+import { siteOrigin } from "@/lib/site-url";
 
 const bricolage = Bricolage_Grotesque({
   variable: "--font-bricolage",
@@ -22,10 +24,11 @@ const description =
   "Fanout turns one deposit into many payouts that land in seconds, in dollars. Built at Monad Metropolis 2026.";
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000"),
+  metadataBase: new URL(siteOrigin()),
   title,
   description,
-  manifest: "/site.webmanifest",
+  // The manifest comes from app/manifest.ts. On an iPhone home screen, open full screen like an app.
+  appleWebApp: { capable: true, title: "Fanout", statusBarStyle: "default" },
   icons: {
     icon: [
       { url: "/favicon.ico", sizes: "48x48" },
@@ -61,6 +64,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       {/* suppressHydrationWarning: browser extensions (e.g. ColorZilla) add attributes to <body> before React loads. */}
       <body className="flex min-h-full flex-col" suppressHydrationWarning>
         <Providers>{children}</Providers>
+        <Analytics />
       </body>
     </html>
   );

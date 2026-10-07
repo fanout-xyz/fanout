@@ -1,5 +1,6 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { SessionExpired } from "@/lib/auth/privy-server";
+import { parseProof } from "@/lib/fanout/claim-email-proof";
 import { EmailRefused, parseRequests, sendClaimEmails } from "@/lib/fanout/claim-emailer";
 
 // Best-effort per-instance rate limit: each call can send up to MAX_ROWS emails.
@@ -12,7 +13,7 @@ function limited(ip: string, max = 5, windowMs = 60_000) {
   return recent.length > max;
 }
 
-/** POST { links: [{ key, email, note? }], reminder?, account? } -> { sent: Address[], failed: [{ claimSigner, reason }] } */
+/** POST { links: [{ key, email, note? }], reminder?, account?, proof? } -> { sent: Address[], failed: [{ claimSigner, reason }] } */
 export async function POST(request: Request) {
   const ip = (request.headers.get("x-forwarded-for") ?? "").split(",")[0].trim() || "unknown";
   if (limited(ip)) return NextResponse.json({ error: "Too many tries. Wait a minute and try again." }, { status: 429 });
@@ -30,6 +31,8 @@ export async function POST(request: Request) {
       accessToken: request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") || null,
       mockAccount: body.account,
       reminder: body.reminder === true,
+      proof: parseProof(body.proof),
+      schedule: after,
     });
     return NextResponse.json(result);
   } catch (err) {

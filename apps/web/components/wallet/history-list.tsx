@@ -2,6 +2,7 @@
 
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { config } from "@/lib/config";
 import { usePayeeHistory } from "@/lib/fanout/queries";
 import { formatUsd } from "@/lib/money";
 import { shortAddress } from "@/lib/send-validation";
@@ -48,11 +49,11 @@ export function HistoryList() {
                   <Arrow down={received} />
                 </span>
                 <div className="min-w-0 flex-1">
-                  <p className="truncate font-semibold">{received ? "Payment received" : `Sent to ${shortAddress(item.counterparty)}`}</p>
+                  <p className="truncate font-semibold">{received ? "Payment received" : item.toUsdc ? "Changed to USDC" : sentLabel(item.counterparty)}</p>
                   <p className="text-sm text-muted tabular-nums">{when.format(item.timestamp)}</p>
                 </div>
                 <p className={cn("font-bold tabular-nums", received ? "text-success" : "text-foreground")}>
-                  <span className="sr-only">{received ? "Received " : "Sent "}</span>
+                  <span className="sr-only">{received ? "Received " : item.toUsdc ? "Changed to USDC " : "Sent "}</span>
                   {received ? "+" : "−"}
                   {formatUsd(item.amount)}
                 </p>
@@ -71,4 +72,11 @@ function Arrow({ down }: { down: boolean }) {
       <path d="M12 5v14M6 13l6 6 6-6" />
     </svg>
   );
+}
+
+/** Paying by email moves money into the payout contracts first, so that's who it was "sent to". */
+function sentLabel(counterparty: string): string {
+  const treasury = config.contracts.treasury;
+  if (treasury && counterparty.toLowerCase() === treasury.toLowerCase()) return "Sent by email";
+  return `Sent to ${shortAddress(counterparty)}`;
 }

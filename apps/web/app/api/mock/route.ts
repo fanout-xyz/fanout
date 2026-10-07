@@ -5,6 +5,7 @@ import { emitPosthogLog, flushPosthogLogs } from "@/instrumentation";
 import { config } from "@/lib/config";
 import { engine, MUTATING, type EngineMethod } from "@/lib/fanout/mock-engine";
 import { getMockState, saveMockState } from "@/lib/fanout/mock-store";
+import { TestDollarsCooldown } from "@/lib/fanout/test-dollars";
 import { NotFoundError } from "@/lib/fanout/types";
 import { fromWire, toWire } from "@/lib/fanout/wire";
 
@@ -16,7 +17,7 @@ import { fromWire, toWire } from "@/lib/fanout/wire";
  */
 
 // Accounts come first for these methods; the rest take args only.
-const WITH_ACCOUNT = new Set<EngineMethod>(["deposit", "createBatchPayout", "send", "refundUnclaimed"]);
+const WITH_ACCOUNT = new Set<EngineMethod>(["deposit", "createBatchPayout", "payFromAccount", "refundExpired", "send", "sendGasless", "receiveAsUsdc", "refundUnclaimed", "simulateClaims", "getTestDollars"]);
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -58,7 +59,8 @@ export async function POST(request: Request) {
     });
     after(flushPosthogLogs);
     const message = err instanceof Error ? err.message : "Something went wrong.";
-    return new NextResponse(toWire({ error: message, notFound }), {
+    const retryAt = err instanceof TestDollarsCooldown ? err.retryAt : undefined;
+    return new NextResponse(toWire({ error: message, notFound, retryAt }), {
       status: err instanceof NotFoundError ? 404 : 400,
       headers: { "content-type": "application/json" },
     });

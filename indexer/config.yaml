@@ -1,29 +1,40 @@
 # yaml-language-server: $schema=./node_modules/envio/evm.schema.json
 name: fanout-indexer
-description: Fanout payouts on Monad testnet (monad-ausd deployment, see smart-contract/README.md)
+description: Fanout payouts on Monad testnet (monad-ausd and monad-v3 deployments, see smart-contract/README.md)
 disable_default_cross_chain: true
 # Every activity row needs its time and its transaction, for the explorer link.
 field_selection:
   transaction_fields: [hash]
 chains:
   - id: 10143
-    # Treasury deploy block for monad-ausd (ignition/deployments/monad-ausd/journal.jsonl).
+    # Treasury deploy block for monad-ausd (ignition/deployments/monad-ausd/journal.jsonl). monad-v3 was
+    # deployed later, so starting here covers both.
     start_block: 66791223
+    # Each contract lists the monad-ausd address, then the monad-v3 one. The v3 events are the same as
+    # monad-ausd's, and v3 payout ids start at 1001, so both deployments share these entities.
+    # Addresses from smart-contract/ignition/deployments/*/deployed_addresses.json. monad-v3 deployed at block 68874807.
     contracts:
       - name: Treasury
-        address: "0x245C9b855fd63395BccEC46f7Bac2671e18e79fE"
+        address:
+          - "0x245C9b855fd63395BccEC46f7Bac2671e18e79fE" # monad-ausd
+          - "0xecC2616C45a55AEA2d33374E4B99D64d0900255c" # monad-v3
         events:
           - event: Deposited(address indexed platform, uint256 amount)
           - event: Withdrawn(address indexed platform, uint256 amount)
           - event: Debited(address indexed platform, uint256 amount)
           - event: Credited(address indexed platform, uint256 amount)
       - name: BatchPayout
-        address: "0xfc15b4f0811C6F88e8D572cFB01fCE5b166FE3dF"
+        address:
+          - "0xfc15b4f0811C6F88e8D572cFB01fCE5b166FE3dF" # monad-ausd
+          - "0x01aD7B7A7Ab17ffE4fDFE4644828167702338386" # monad-v3
         events:
           - event: BatchCreated(uint256 indexed batchId, address indexed platform, uint256 total, uint256 count)
       - name: ClaimEscrow
-        address: "0xf1de07BFfAF3D3D4279399D63049F0C01b8aFD11"
+        address:
+          - "0xf1de07BFfAF3D3D4279399D63049F0C01b8aFD11" # monad-ausd
+          - "0x15DaAD3E6200051AE2F956ba32cD8033e82d40B6" # monad-v3
         events:
+          # expiresAt is each payout's own claim window end on v3 (30 days after creation on monad-ausd).
           - event: ClaimOpened(address indexed claimSigner, address indexed platform, uint256 indexed batchId, uint256 amount, uint64 expiresAt)
           - event: Claimed(address indexed claimSigner, address indexed recipient, uint256 amount)
           - event: Refunded(address indexed claimSigner, address indexed platform, uint256 amount)

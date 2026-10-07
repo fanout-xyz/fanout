@@ -32,7 +32,10 @@ import { normalizeEmail } from "@/lib/email-hash";
  * sent to. The passkey account is only where the money lands.
  */
 
-const STORE = "fanout.passkeyAccounts.v1";
+// v2: passkeys moved from the page's own host to fanout.tech (passkeyRpId). A v1 record names a
+// passkey made for demo.fanout.tech, which can't open under fanout.tech, so those are ignored.
+const STORE = "fanout.passkeyAccounts.v2";
+const ROOT_DOMAIN = "fanout.tech";
 const PATH = "m/44'/60'/0'/0/0";
 
 export type PasskeyAccountRecord = {
@@ -108,6 +111,15 @@ function translate(err: unknown): never {
   throw err;
 }
 
+/**
+ * The domain a passkey belongs to. On fanout.tech and every subdomain it's fanout.tech, so the same
+ * passkey opens the same account on demo.fanout.tech and wallet.fanout.tech. Elsewhere (localhost,
+ * Vercel previews) it's the host itself.
+ */
+export function passkeyRpId(hostname: string): string {
+  return hostname === ROOT_DOMAIN || hostname.endsWith(`.${ROOT_DOMAIN}`) ? ROOT_DOMAIN : hostname;
+}
+
 /** Quick check before offering passkeys. A true here can still fail at the PRF step. */
 export function passkeysAvailable(): boolean {
   return typeof window !== "undefined" && window.isSecureContext && typeof window.PublicKeyCredential === "function";
@@ -117,7 +129,7 @@ export function passkeysAvailable(): boolean {
 export async function createPasskeyAccount(email: string): Promise<UnlockedAccount> {
   try {
     const created = await createPasskeyWithPrfOutput({
-      rp: { id: window.location.hostname, name: "Fanout" },
+      rp: { id: passkeyRpId(window.location.hostname), name: "Fanout" },
       user: { name: normalizeEmail(email), displayName: email.trim() },
     });
     const unlocked = toUnlocked(deriveSession(created.prfOutput));
@@ -143,7 +155,7 @@ export async function unlockPasskeyAccount(email: string): Promise<UnlockedAccou
   const known = loadRecord(email);
   try {
     const got = await getPasskeyPrfOutput({
-      rpId: window.location.hostname,
+      rpId: passkeyRpId(window.location.hostname),
       ...(known ? { credential: { credentialId: known.credentialId, transports: known.transports } } : {}),
     });
     const unlocked = toUnlocked(deriveSession(got.prfOutput));

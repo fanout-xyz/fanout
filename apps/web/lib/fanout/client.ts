@@ -8,9 +8,16 @@ import type {
   BatchRowInput,
   BatchSummary,
   ClaimInfo,
+  GaslessSendResult,
   Hex,
   PayeeHistoryItem,
+  PayFromAccountResult,
+  PayoutOptions,
+  PayoutResult,
+  RefundResult,
+  TestDollarsResult,
   TxResult,
+  UsdcSettleResult,
 } from "./types";
 
 /**
@@ -24,17 +31,52 @@ import type {
 export interface FanoutClient {
   getTreasuryBalance(platform: Address): Promise<bigint>;
   deposit(amount: bigint): Promise<TxResult>;
-  createBatchPayout(rows: BatchRowInput[]): Promise<{ batchId: string; txHash: Hex }>;
+  /** Pays from the payout balance. options.claimWindowSeconds needs the v3 contracts (claimWindowEnabled()). */
+  createBatchPayout(rows: BatchRowInput[], options?: PayoutOptions): Promise<PayoutResult>;
+  /**
+   * Pays from the signed-in account's own AUSD instead of the payout balance: deposit the total,
+   * then pay out (paying someone by email). With the v3 contracts and our relayer, the account
+   * only signs two authorizations (lib/fanout/batch-authorization.ts, erc3009.ts) and the relayer
+   * submits both in one transaction, so it needs no MON (`gasless: true`). Otherwise the account
+   * sends approve, deposit and createBatch itself.
+   */
+  payFromAccount(rows: BatchRowInput[], options?: PayoutOptions): Promise<PayFromAccountResult>;
+  /**
+   * Returns a payout's unclaimed money to the platform's balance once its claim window has passed
+   * (ClaimEscrow.refundMany on v3, one refund per row before). The signed-in account sends it and
+   * pays the fee. Throws if nothing has expired yet.
+   */
+  refundExpired(batchId: string): Promise<RefundResult>;
   getBatch(batchId: string): Promise<Batch>;
   getClaim(claimSigner: Address): Promise<ClaimInfo>;
   /** signature: see lib/fanout/claim-keys.ts for exactly what is signed. */
   claim(claimSigner: Address, recipient: Address, signature: Hex): Promise<TxResult>;
   getPayeeBalance(address: Address): Promise<bigint>;
   send(to: Address, amount: bigint): Promise<TxResult>;
+  /**
+   * Sends like `send`, but the payee only signs an authorization (ERC-3009, lib/fanout/erc3009.ts)
+   * and our relayer submits it and pays the fee, so the account needs no MON. Falls back to `send`
+   * when the relayer isn't set up or there's no signed-in session (`gasless: false`).
+   */
+  sendGasless(to: Address, amount: bigint): Promise<GaslessSendResult>;
+  /**
+   * Changes `amount` of the signed-in payee's dollars (AUSD) to USDC through Agora's stable-swap pair.
+   * The payee signs one authorization; our relayer submits it (see lib/fanout/usdc-settle.ts).
+   */
+  receiveAsUsdc(amount: bigint): Promise<UsdcSettleResult>;
+  /** USDC held, in USDC base units (config.usdc.decimals). */
+  getPayeeUsdcBalance(address: Address): Promise<bigint>;
+  /**
+   * Free test dollars for the signed-in account, for trying Fanout (lib/fanout/test-dollars.ts). Onchain,
+   * Monad testnet only: our relayer asks Agora's AUSD faucet to send them to the account, and they're
+   * ready to deposit. The mock credits the payout balance. Once per account per day; a refusal because
+   * of a limit throws TestDollarsCooldown.
+   */
+  getTestDollars(): Promise<TestDollarsResult>;
 
   /** PROPOSED: past batches for the dashboard. Onchain version likely comes from the indexer. */
   listBatches(platform: Address): Promise<BatchSummary[]>;
-  /** PROPOSED: payee activity for /wallet. Onchain version likely comes from the indexer. */
+  /** PROPOSED: payee activity for /balance. Onchain version likely comes from the indexer. */
   getPayeeHistory(address: Address): Promise<PayeeHistoryItem[]>;
 }
 
@@ -43,7 +85,10 @@ export type FanoutClientContext = {
   account?: Address;
   /** Required by the onchain client for writes. The mock ignores it. */
   walletClient?: WalletClient;
-  /** Proves who is claiming, so the server can check their email. Onchain client only. */
+  /**
+   * The signed-in session: proves who is claiming, so the server can check their email, and gates the
+   * relayer's fee-free sends and changes to USDC. Onchain client only.
+   */
   getAccessToken?: () => Promise<string | null>;
 };
 

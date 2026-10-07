@@ -16,10 +16,16 @@ import {
 import { activeChain, monFaucetUrl } from "@/lib/chains";
 import { config } from "@/lib/config";
 import { MAX_ROWS } from "@/lib/csv";
-import { batchPayoutAbi, claimEscrowAbi, erc20Abi, treasuryAbi } from "./abis";
+import { customClaimWindow } from "@/lib/claim-window";
+import { agoraPairAbi, batchPayoutAbi, batchPayoutV3Abi, claimEscrowAbi, claimEscrowV3Abi, eip712DomainAbi, erc20Abi, treasuryAbi } from "./abis";
+import { BATCH_AUTHORIZATION_WINDOW_SECONDS, signCreateBatch, type CreateBatchAuthorization } from "./batch-authorization";
 import type { FanoutClient, FanoutClientContext } from "./client";
+import { indexedBatches, indexedBatchTx, indexedPayeeHistory, indexerEnabled, mergeHistory } from "./indexer";
 import { recallActivity, recallBatchTx, rememberActivity, rememberBatchTx } from "./local-records";
-import { NotFoundError, type BatchSummary, type PayoutStatus } from "./types";
+import { TestDollarsCooldown } from "./test-dollars";
+import { NotFoundError, type BatchRowInput, type BatchSummary, type PayoutOptions, type PayoutStatus } from "./types";
+import { AUTHORIZATION_WINDOW_SECONDS, randomNonce, signAuthorization, type TokenDomain } from "./erc3009";
+import { minOutFor, randomSalt, SETTLE_WINDOW_SECONDS, signSettle } from "./usdc-settle";
 
 /**
  * FanoutClient against the deployed contracts (Treasury, BatchPayout, ClaimEscrow on Monad testnet).
@@ -35,8 +41,8 @@ const STATUS: readonly PayoutStatus[] = ["sent", "claimed", "refunded"];
  * Treasury.debit, ClaimEscrow.open), so a revert can come from a contract other than the one
  * called; adding all errors to each simulation lets viem decode it by name.
  */
-export const ALL_CONTRACT_ERRORS = [...treasuryAbi, ...batchPayoutAbi, ...claimEscrowAbi].filter((x) => x.type === "error");
-/** How many recent batches the dashboard scans (there's no per-platform view onchain). */
+export const ALL_CONTRACT_ERRORS = [...treasuryAbi, ...batchPayoutAbi, ...claimEscrowAbi, ...batchPayoutV3Abi].filter((x) => x.type === "error");
+/** How many recent batches the dashboard scans when the indexer is unavailable (there's no per-platform view onchain). */
 const LIST_SCAN_LIMIT = 200;
 
 let publicClient: PublicClient | null = null;
@@ -61,6 +67,24 @@ const REVERT_MESSAGES: Record<string, string> = {
   BadSignature: "This payment link isn't valid.",
   NotExpired: "This payment hasn't expired yet.",
   Unauthorized: "This account isn't allowed to do that.",
+  ClaimWindowOutOfRange: "Unclaimed money can return after 5 minutes at the earliest and 90 days at the latest.",
+  // BatchPayout, when a payout signed by the account is submitted for it. Nothing moves when these happen.
+  AuthorizationExpired: "That took too long. Nothing was sent. Try again.",
+  AuthorizationAlreadyUsed: "This was already sent. Check your activity before trying again.",
+  BadAuthorization: "Something's off with this request. Nothing was sent. Try again.",
+  // Agora's stable-swap pair, when changing dollars to USDC. Nothing moves when these happen.
+  InsufficientOutputAmount: "The USDC rate moved. Nothing changed. Try again.",
+  Expired: "That took too long. Nothing changed. Try again.",
+  PriceExpired: "USDC isn't available right now. Nothing changed. Try again later.",
+  PairIsPaused: "USDC isn't available right now. Nothing changed. Try again later.",
+  InsufficientLiquidity: "There isn't enough USDC available right now. Try a smaller amount.",
+  AddressIsNotRole: "USDC isn't available right now. Nothing changed. Try again later.",
+  // AUSD, when a signed send or change to USDC is submitted for the payee. Nothing moves when these happen.
+  UsedOrCanceledAuthorization: "This was already sent. Check your activity before trying again.",
+  ExpiredAuthorization: "That took too long. Nothing was sent. Try again.",
+  InvalidAuthorization: "Something's off with this request. Nothing was sent. Try again.",
+  InvalidSignature: "Something's off with this request. Nothing was sent. Try again.",
+  ERC20InsufficientBalance: "You don't have enough for that. Nothing was sent.",
 };
 
 /** Turns wallet/chain errors into plain sentences; keeps NotFoundError as is. */
@@ -96,6 +120,61 @@ export function need(value: Address | undefined, name: string): Address {
   return value;
 }
 
+/** Whether this server's relayer can send for payees (GET /api/relay/send). Asked once per page load. */
+let relaySendCheck: Promise<boolean> | null = null;
+function relaySendAvailable(): Promise<boolean> {
+  return (relaySendCheck ??= fetch("/api/relay/send")
+    .then(async (res) => res.ok && ((await res.json()) as { available?: boolean }).available === true)
+    .catch(() => {
+      relaySendCheck = null; // offline: ask again next time
+      return false;
+    }));
+}
+
+/**
+ * Whether this server's relayer can deposit and pay out for an account (GET /api/relay/pay-email).
+ * Only asked with the v3 contracts. Asked once per page load.
+ */
+let relayPayCheck: Promise<boolean> | null = null;
+function relayPayAvailable(): Promise<boolean> {
+  return (relayPayCheck ??= fetch("/api/relay/pay-email")
+    .then(async (res) => res.ok && ((await res.json()) as { available?: boolean }).available === true)
+    .catch(() => {
+      relayPayCheck = null; // offline: ask again next time
+      return false;
+    }));
+}
+
+/**
+ * Asks the relayer for enough MON to send approve, deposit and createBatch from the account
+ * (relayer.ts topUpForEmailPayment). Only without the v3 contracts, which need no MON at all.
+ * Best effort: an account that already holds MON can go on without it.
+ */
+async function topUpFees(address: Address, amount: bigint, accessToken: string): Promise<void> {
+  try {
+    await fetch("/api/relay/fees", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({ address, amount: amount.toString() }),
+    });
+  } catch {
+    // Offline or refused: the transactions say so themselves if the account can't pay.
+  }
+}
+
+/** A batch's claim expiry (unix ms) from its claims (ClaimEscrow.claims): every row in a batch shares it. */
+const expiryOf = (claims: readonly (readonly [bigint, Address, number, bigint, Hex])[]) =>
+  claims.length ? Number(claims.reduce((max, [, , , expiresAt]) => (expiresAt > max ? expiresAt : max), 0n)) * 1000 : undefined;
+
+const rowArgs = (rows: BatchRowInput[]) =>
+  [rows.map((r) => r.claimSigner), rows.map((r) => r.amount), rows.map((r) => r.emailHash ?? zeroHash)] as const;
+
+/** A token's EIP-712 domain, read from the token itself (ERC-5267). Agora AUSD: "Agora Dollar", "1". */
+async function tokenDomain(token: Address): Promise<TokenDomain> {
+  const [, name, version, chainId, verifyingContract] = await reader().readContract({ address: token, abi: eip712DomainAbi, functionName: "eip712Domain" });
+  return { name, version, chainId: Number(chainId), verifyingContract };
+}
+
 export function createOnchainClient(ctx: FanoutClientContext): FanoutClient {
   const c = {
     get treasury() {
@@ -109,6 +188,7 @@ export function createOnchainClient(ctx: FanoutClientContext): FanoutClient {
     },
   };
   const tokenAddress = () => need(config.stablecoin.address, "NEXT_PUBLIC_AUSD_ADDRESS");
+  const usdcAddress = () => need(config.usdc.address, "NEXT_PUBLIC_USDC_ADDRESS");
 
   async function signer(): Promise<{ wc: WalletClient; account: Address }> {
     const wc = ctx.walletClient;
@@ -133,6 +213,20 @@ export function createOnchainClient(ctx: FanoutClientContext): FanoutClient {
     return receipt;
   }
 
+  /** An AUSD transfer from the signed-in account itself, which pays its own fee in MON. */
+  async function transfer(to: Address, amount: bigint) {
+    const { account } = await signer();
+    const receipt = await write({ address: tokenAddress(), abi: erc20Abi, functionName: "transfer", args: [to, amount] });
+    rememberActivity(activeChain.id, account, {
+      kind: "sent",
+      amount,
+      counterparty: to,
+      txHash: receipt.transactionHash,
+      timestamp: Date.now(),
+    });
+    return { txHash: receipt.transactionHash };
+  }
+
   async function statusesOf(signers: readonly Address[]) {
     if (signers.length === 0) return [];
     return reader().multicall({
@@ -141,57 +235,202 @@ export function createOnchainClient(ctx: FanoutClientContext): FanoutClient {
     });
   }
 
+  /** Batches first..last (newest first) that belong to `platform`, read from the contracts. */
+  async function scanBatches(first: number, last: number, platform: Address): Promise<BatchSummary[]> {
+    if (last < first) return [];
+    const ids = Array.from({ length: last - first + 1 }, (_, i) => BigInt(last - i));
+    const batches = await reader().multicall({
+      allowFailure: false,
+      contracts: ids.map((id) => ({ address: c.batchPayout, abi: batchPayoutAbi, functionName: "getBatch" as const, args: [id] as const })),
+    });
+    const mine = batches
+      .map(([p, createdAt, total, signers], i) => ({ id: ids[i].toString(), p, createdAt, total, signers }))
+      .filter((b) => b.p.toLowerCase() === platform.toLowerCase());
+    const claims = await statusesOf(mine.flatMap((b) => b.signers));
+    let offset = 0;
+    return mine.map((b): BatchSummary => {
+      const slice = claims.slice(offset, (offset += b.signers.length));
+      return {
+        id: b.id,
+        createdAt: Number(b.createdAt) * 1000,
+        expiresAt: expiryOf(slice),
+        total: b.total,
+        txHash: recallBatchTx(activeChain.id, c.batchPayout, b.id) ?? zeroHash,
+        rowCount: b.signers.length,
+        claimedCount: slice.filter(([, , status]) => status === 1).length,
+      };
+    });
+  }
+
+  async function deposit(amount: bigint) {
+    const { account } = await signer();
+    const [held, allowance] = await Promise.all([
+      reader().readContract({ address: tokenAddress(), abi: erc20Abi, functionName: "balanceOf", args: [account] }),
+      reader().readContract({ address: tokenAddress(), abi: erc20Abi, functionName: "allowance", args: [account, c.treasury] }),
+    ]);
+    if (held < amount) throw new Error(`Your account holds ${usd(held)} in AUSD, less than ${usd(amount)}. Add AUSD to your account first.`);
+    if (allowance < amount) {
+      await write({ address: tokenAddress(), abi: erc20Abi, functionName: "approve", args: [c.treasury, amount] });
+    }
+    const receipt = await write({ address: c.treasury, abi: treasuryAbi, functionName: "deposit", args: [amount] });
+    return { txHash: receipt.transactionHash };
+  }
+
+  /** The new batch's id from its BatchCreated event, remembered with its transaction for "View transaction". */
+  function createdBatch(logs: Parameters<typeof parseEventLogs>[0]["logs"], txHash: Hex) {
+    const [event] = parseEventLogs({ abi: batchPayoutV3Abi, eventName: "BatchCreated", logs });
+    if (!event) throw new Error("The payout went through, but its number couldn't be read. Check your payouts list.");
+    const batchId = event.args.batchId.toString();
+    rememberBatchTx(activeChain.id, c.batchPayout, batchId, txHash);
+    return { batchId, txHash };
+  }
+
+  async function createBatch(rows: BatchRowInput[], options: PayoutOptions = {}) {
+    if (rows.length > MAX_ROWS) throw new Error(REVERT_MESSAGES.TooManyRows);
+    const window = options.claimWindowSeconds;
+    // The default window is the original three-argument createBatch, which every deployment has.
+    if (!customClaimWindow(window)) {
+      const receipt = await write({ address: c.batchPayout, abi: batchPayoutAbi, functionName: "createBatch", args: rowArgs(rows) });
+      return createdBatch(receipt.logs, receipt.transactionHash);
+    }
+    if (!config.payoutsV3) throw new Error("Choosing when unclaimed money returns isn't available yet. Use the default 30 days.");
+    const receipt = await write({ address: c.batchPayout, abi: batchPayoutV3Abi, functionName: "createBatch", args: [...rowArgs(rows), BigInt(window)] });
+    return createdBatch(receipt.logs, receipt.transactionHash);
+  }
+
+  /**
+   * v3 + relayer: the account signs a ReceiveWithAuthorization for the total (to the Treasury) and a
+   * CreateBatch for these exact rows, and the relayer submits depositAndCreateBatchFor. Returns null
+   * when that isn't available here, so the caller sends the transactions itself.
+   */
+  async function payGasless(rows: BatchRowInput[], options: PayoutOptions) {
+    const accessToken = await ctx.getAccessToken?.();
+    // Ask before signing, so a signature is never made that nobody will submit.
+    if (!config.payoutsV3 || !accessToken || !(await relayPayAvailable())) return null;
+    const { wc, account } = await signer();
+    const total = rows.reduce((sum, r) => sum + r.amount, 0n);
+    const [held, domain] = await Promise.all([
+      reader().readContract({ address: tokenAddress(), abi: erc20Abi, functionName: "balanceOf", args: [account] }),
+      tokenDomain(tokenAddress()),
+    ]);
+    if (held < total) throw new Error(`Not enough: your balance is ${usd(held)}, less than ${usd(total)}.`);
+
+    const now = BigInt(Math.floor(Date.now() / 1000));
+    const [claimSigners, amounts, emailHashes] = rowArgs(rows);
+    const depositAuth = { from: account, to: c.treasury, value: total, validAfter: 0n, validBefore: now + AUTHORIZATION_WINDOW_SECONDS, nonce: randomNonce() };
+    const batchAuth: CreateBatchAuthorization = {
+      platform: account,
+      claimSigners,
+      amounts,
+      emailHashes,
+      claimWindow: BigInt(options.claimWindowSeconds ?? 0),
+      nonce: randomNonce(),
+      deadline: now + BATCH_AUTHORIZATION_WINDOW_SECONDS,
+    };
+    const depositSignature = await signAuthorization(wc, "ReceiveWithAuthorization", domain, depositAuth);
+    const batchSignature = await signCreateBatch(wc, c.batchPayout, activeChain.id, batchAuth);
+
+    let res: Response;
+    try {
+      res = await fetch("/api/relay/pay-email", {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({
+          platform: account,
+          claimSigners,
+          amounts: amounts.map(String),
+          emailHashes,
+          claimWindow: batchAuth.claimWindow.toString(),
+          nonce: batchAuth.nonce,
+          deadline: batchAuth.deadline.toString(),
+          signature: batchSignature,
+          deposit: {
+            validAfter: depositAuth.validAfter.toString(),
+            validBefore: depositAuth.validBefore.toString(),
+            nonce: depositAuth.nonce,
+            signature: depositSignature,
+          },
+        }),
+      });
+    } catch {
+      throw new Error("Can't reach the server. Check your connection and try again.");
+    }
+    const body = (await res.json().catch(() => ({}))) as { txHash?: Hex; batchId?: string; error?: string };
+    if (!res.ok || !body.txHash || !body.batchId) throw new Error(body.error ?? "Something went wrong and nothing was sent. Try again.");
+    rememberBatchTx(activeChain.id, c.batchPayout, body.batchId, body.txHash);
+    return { batchId: body.batchId, txHash: body.txHash };
+  }
+
+  async function readBatch(batchId: string) {
+    if (!/^\d+$/.test(batchId)) throw new NotFoundError(`Payout #${batchId} doesn't exist.`);
+    const [platform, createdAt, total, signers] = await reader().readContract({
+      address: c.batchPayout,
+      abi: batchPayoutAbi,
+      functionName: "getBatch",
+      args: [BigInt(batchId)],
+    });
+    if (platform === zeroAddress) throw new NotFoundError(`Payout #${batchId} doesn't exist.`);
+    return { platform, createdAt, total, signers, claims: await statusesOf(signers) };
+  }
+
   return {
     getTreasuryBalance: (platform) =>
       guard(() => reader().readContract({ address: c.treasury, abi: treasuryAbi, functionName: "balanceOf", args: [platform] })),
 
-    deposit: (amount) =>
-      guard(async () => {
-        const { account } = await signer();
-        const [held, allowance] = await Promise.all([
-          reader().readContract({ address: tokenAddress(), abi: erc20Abi, functionName: "balanceOf", args: [account] }),
-          reader().readContract({ address: tokenAddress(), abi: erc20Abi, functionName: "allowance", args: [account, c.treasury] }),
-        ]);
-        if (held < amount) throw new Error(`Your account holds ${usd(held)} in AUSD, less than ${usd(amount)}. Add AUSD to your account first.`);
-        if (allowance < amount) {
-          await write({ address: tokenAddress(), abi: erc20Abi, functionName: "approve", args: [c.treasury, amount] });
-        }
-        const receipt = await write({ address: c.treasury, abi: treasuryAbi, functionName: "deposit", args: [amount] });
-        return { txHash: receipt.transactionHash };
-      }),
+    deposit: (amount) => guard(() => deposit(amount)),
 
-    createBatchPayout: (rows) =>
+    createBatchPayout: (rows, options) => guard(() => createBatch(rows, options)),
+
+    payFromAccount: (rows, options = {}) =>
       guard(async () => {
         if (rows.length > MAX_ROWS) throw new Error(REVERT_MESSAGES.TooManyRows);
-        const receipt = await write({
-          address: c.batchPayout,
-          abi: batchPayoutAbi,
-          functionName: "createBatch",
-          args: [rows.map((r) => r.claimSigner), rows.map((r) => r.amount), rows.map((r) => r.emailHash ?? zeroHash)],
-        });
-        const [event] = parseEventLogs({ abi: batchPayoutAbi, eventName: "BatchCreated", logs: receipt.logs });
-        if (!event) throw new Error("The payout went through, but its number couldn't be read. Check your payouts list.");
-        const batchId = event.args.batchId.toString();
-        rememberBatchTx(activeChain.id, c.batchPayout, batchId, receipt.transactionHash);
-        return { batchId, txHash: receipt.transactionHash };
+        const gasless = await payGasless(rows, options);
+        if (gasless) return { ...gasless, gasless: true };
+
+        // Without the v3 contracts or the relayer: approve, deposit and pay from the account itself.
+        const { account } = await signer();
+        const total = rows.reduce((sum, r) => sum + r.amount, 0n);
+        const accessToken = await ctx.getAccessToken?.();
+        if (accessToken) await topUpFees(account, total, accessToken);
+        await deposit(total);
+        return { ...(await createBatch(rows, options)), gasless: false };
+      }),
+
+    refundExpired: (batchId) =>
+      guard(async () => {
+        const { claims, signers } = await readBatch(batchId);
+        const now = (await reader().getBlock()).timestamp;
+        const due = signers.filter((_, i) => claims[i][2] === 0 && claims[i][3] <= now);
+        if (due.length === 0) {
+          throw new Error(
+            claims.some(([, , status]) => status === 0)
+              ? "This payout's claim links still work. Unclaimed money can return once they expire."
+              : "Nothing is waiting to be claimed in this payout.",
+          );
+        }
+        if (config.payoutsV3) {
+          // One transaction for the whole payout; rows claimed meanwhile are skipped, not a failure.
+          const receipt = await write({ address: c.claimEscrow, abi: claimEscrowV3Abi, functionName: "refundMany", args: [due] });
+          const refunded = parseEventLogs({ abi: claimEscrowAbi, eventName: "Refunded", logs: receipt.logs }).length;
+          return { txHash: receipt.transactionHash, refunded };
+        }
+        // The older contracts refund one claim per transaction.
+        let txHash: Hex = zeroHash;
+        for (const s of due) {
+          txHash = (await write({ address: c.claimEscrow, abi: claimEscrowAbi, functionName: "refund", args: [s] })).transactionHash;
+        }
+        return { txHash, refunded: due.length };
       }),
 
     getBatch: (batchId) =>
       guard(async () => {
-        if (!/^\d+$/.test(batchId)) throw new NotFoundError(`Payout #${batchId} doesn't exist.`);
-        const [platform, createdAt, total, signers] = await reader().readContract({
-          address: c.batchPayout,
-          abi: batchPayoutAbi,
-          functionName: "getBatch",
-          args: [BigInt(batchId)],
-        });
-        if (platform === zeroAddress) throw new NotFoundError(`Payout #${batchId} doesn't exist.`);
-        const claims = await statusesOf(signers);
+        const { createdAt, total, signers, claims } = await readBatch(batchId);
         return {
           id: batchId,
           createdAt: Number(createdAt) * 1000,
+          expiresAt: expiryOf(claims),
           total,
-          txHash: recallBatchTx(activeChain.id, c.batchPayout, batchId) ?? zeroHash,
+          txHash: recallBatchTx(activeChain.id, c.batchPayout, batchId) ?? (await indexedBatchTx(batchId).catch(() => undefined)) ?? zeroHash,
           rows: signers.map((claimSigner, i) => {
             const [amount, , status, , emailHash] = claims[i];
             return { claimSigner, amount, status: STATUS[status], emailHash: emailHash === zeroHash ? undefined : emailHash };
@@ -237,6 +476,7 @@ export function createOnchainClient(ctx: FanoutClientContext): FanoutClient {
           counterparty: zeroAddress,
           txHash: body.txHash,
           timestamp: Date.now(),
+          payout: true,
         });
         return { txHash: body.txHash };
       }),
@@ -244,50 +484,168 @@ export function createOnchainClient(ctx: FanoutClientContext): FanoutClient {
     getPayeeBalance: (address) =>
       guard(() => reader().readContract({ address: tokenAddress(), abi: erc20Abi, functionName: "balanceOf", args: [address] })),
 
-    send: (to, amount) =>
+    send: (to, amount) => guard(() => transfer(to, amount)),
+
+    sendGasless: (to, amount) =>
       guard(async () => {
-        const { account } = await signer();
-        const receipt = await write({ address: tokenAddress(), abi: erc20Abi, functionName: "transfer", args: [to, amount] });
+        // The relayer pays the fee, so like claiming it wants a signed-in session. Without one, send the old way.
+        const accessToken = await ctx.getAccessToken?.();
+        // Ask before signing, so a signature is never made that nobody will submit.
+        if (!accessToken || !(await relaySendAvailable())) return { ...(await transfer(to, amount)), gasless: false };
+        const { wc, account } = await signer();
+        const [held, domain] = await Promise.all([
+          reader().readContract({ address: tokenAddress(), abi: erc20Abi, functionName: "balanceOf", args: [account] }),
+          tokenDomain(tokenAddress()),
+        ]);
+        if (held < amount) throw new Error(`Not enough: your balance is ${usd(held)}, less than ${usd(amount)}.`);
+
+        // One signature: exactly this amount, to exactly this address, once (lib/fanout/erc3009.ts).
+        const auth = {
+          from: account,
+          to,
+          value: amount,
+          validAfter: 0n,
+          validBefore: BigInt(Math.floor(Date.now() / 1000)) + AUTHORIZATION_WINDOW_SECONDS,
+          nonce: randomNonce(),
+        };
+        const signature = await signAuthorization(wc, "TransferWithAuthorization", domain, auth);
+
+        let res: Response;
+        try {
+          res = await fetch("/api/relay/send", {
+            method: "POST",
+            headers: { "content-type": "application/json", authorization: `Bearer ${accessToken}` },
+            body: JSON.stringify({
+              from: auth.from,
+              to: auth.to,
+              value: auth.value.toString(),
+              validAfter: auth.validAfter.toString(),
+              validBefore: auth.validBefore.toString(),
+              nonce: auth.nonce,
+              signature,
+            }),
+          });
+        } catch {
+          throw new Error("Can't reach the server. Check your connection and try again.");
+        }
+        const body = (await res.json().catch(() => ({}))) as { txHash?: Hex; error?: string };
+        if (!res.ok || !body.txHash) throw new Error(body.error ?? "Something went wrong and nothing was sent. Try again.");
+        rememberActivity(activeChain.id, account, { kind: "sent", amount, counterparty: to, txHash: body.txHash, timestamp: Date.now() });
+        return { txHash: body.txHash, gasless: true };
+      }),
+
+    receiveAsUsdc: (amount) =>
+      guard(async () => {
+        const settle = need(config.usdc.settle, "NEXT_PUBLIC_SETTLE_ADDRESS");
+        // The relayer pays the gas, so like claiming it wants a signed-in session.
+        const accessToken = await ctx.getAccessToken?.();
+        if (!accessToken) throw new Error("Sign in to change dollars to USDC.");
+        const { wc, account } = await signer();
+        const [held, [, quote], domain] = await Promise.all([
+          reader().readContract({ address: tokenAddress(), abi: erc20Abi, functionName: "balanceOf", args: [account] }),
+          reader().readContract({
+            address: need(config.usdc.pair, "NEXT_PUBLIC_AGORA_PAIR_ADDRESS"),
+            abi: agoraPairAbi,
+            functionName: "getAmountsOut",
+            args: [amount, [tokenAddress(), usdcAddress()]],
+          }),
+          tokenDomain(tokenAddress()),
+        ]);
+        if (held < amount) throw new Error(`Your balance is ${usd(held)}, less than ${usd(amount)}.`);
+
+        // One signature: AUSD to SettleToUsdc, at least minOut USDC back (lib/fanout/usdc-settle.ts).
+        const auth = {
+          from: account,
+          value: amount,
+          validAfter: 0n,
+          validBefore: BigInt(Math.floor(Date.now() / 1000)) + SETTLE_WINDOW_SECONDS,
+          salt: randomSalt(),
+          minOut: minOutFor(quote),
+        };
+        const signature = await signSettle(wc, domain, settle, auth);
+
+        let res: Response;
+        try {
+          res = await fetch("/api/relay/settle", {
+            method: "POST",
+            headers: { "content-type": "application/json", authorization: `Bearer ${accessToken}` },
+            body: JSON.stringify({
+              from: auth.from,
+              value: auth.value.toString(),
+              validAfter: auth.validAfter.toString(),
+              validBefore: auth.validBefore.toString(),
+              salt: auth.salt,
+              minOut: auth.minOut.toString(),
+              signature,
+            }),
+          });
+        } catch {
+          throw new Error("Can't reach the server. Check your connection and try again.");
+        }
+        const body = (await res.json().catch(() => ({}))) as { txHash?: Hex; amountOut?: string; error?: string };
+        if (!res.ok || !body.txHash) throw new Error(body.error ?? "Something went wrong and nothing changed. Try again.");
         rememberActivity(activeChain.id, account, {
           kind: "sent",
           amount,
-          counterparty: to,
-          txHash: receipt.transactionHash,
+          counterparty: settle,
+          txHash: body.txHash,
           timestamp: Date.now(),
+          toUsdc: true,
         });
-        return { txHash: receipt.transactionHash };
+        return { txHash: body.txHash, amountOut: BigInt(body.amountOut ?? "0") };
       }),
+
+    getPayeeUsdcBalance: (address) =>
+      guard(() => reader().readContract({ address: usdcAddress(), abi: erc20Abi, functionName: "balanceOf", args: [address] })),
+
+    getTestDollars: async () => {
+      // The server only sends to the signed-in user's own account, so it wants the session.
+      const accessToken = await ctx.getAccessToken?.();
+      if (!accessToken || !ctx.account) throw new Error("Sign in to get test dollars.");
+      let res: Response;
+      try {
+        res = await fetch("/api/relay/test-dollars", {
+          method: "POST",
+          headers: { "content-type": "application/json", authorization: `Bearer ${accessToken}` },
+          body: JSON.stringify({ address: ctx.account }),
+        });
+      } catch {
+        throw new Error("Can't reach the server. Check your connection and try again.");
+      }
+      const body = (await res.json().catch(() => ({}))) as { txHash?: Hex; amount?: string; error?: string; retryAt?: number };
+      if (res.status === 429 && typeof body.retryAt === "number") throw new TestDollarsCooldown(body.error ?? "Try again later.", body.retryAt);
+      if (!res.ok || !body.txHash) throw new Error(body.error ?? "Couldn't get test dollars. Try again.");
+      return { txHash: body.txHash, amount: BigInt(body.amount ?? "0") };
+    },
 
     listBatches: (platform) =>
       guard(async () => {
-        const next = await reader().readContract({ address: c.batchPayout, abi: batchPayoutAbi, functionName: "nextBatchId" });
-        const last = Number(next) - 1;
-        const first = Math.max(1, last - LIST_SCAN_LIMIT + 1);
+        const next = Number(await reader().readContract({ address: c.batchPayout, abi: batchPayoutAbi, functionName: "nextBatchId" }));
+        const last = next - 1;
         if (last < 1) return [];
-        const ids = Array.from({ length: last - first + 1 }, (_, i) => BigInt(last - i));
-        const batches = await reader().multicall({
-          allowFailure: false,
-          contracts: ids.map((id) => ({ address: c.batchPayout, abi: batchPayoutAbi, functionName: "getBatch" as const, args: [id] as const })),
-        });
-        const mine = batches
-          .map(([p, createdAt, total, signers], i) => ({ id: ids[i].toString(), p, createdAt, total, signers }))
-          .filter((b) => b.p.toLowerCase() === platform.toLowerCase());
-        const claims = await statusesOf(mine.flatMap((b) => b.signers));
-        let offset = 0;
-        return mine.map((b): BatchSummary => {
-          const slice = claims.slice(offset, (offset += b.signers.length));
-          return {
-            id: b.id,
-            createdAt: Number(b.createdAt) * 1000,
-            total: b.total,
-            txHash: recallBatchTx(activeChain.id, c.batchPayout, b.id) ?? zeroHash,
-            rowCount: b.signers.length,
-            claimedCount: slice.filter(([, , status]) => status === 1).length,
-          };
-        });
+        if (indexerEnabled()) {
+          try {
+            const { batches, latestId } = await indexedBatches(platform);
+            // The indexer trails the chain by a few seconds: read anything newer straight from the contract.
+            const fresh = await scanBatches(Math.max(latestId + 1, last - LIST_SCAN_LIMIT + 1), last, platform);
+            return [...fresh, ...batches];
+          } catch {
+            // Indexer down or unreachable: fall through to the chain scan.
+          }
+        }
+        return scanBatches(Math.max(1, last - LIST_SCAN_LIMIT + 1), last, platform);
       }),
 
-    // Until an indexer exists: what this device recorded (claims and sends made here).
-    getPayeeHistory: async (address) => recallActivity(activeChain.id, address),
+    // Indexed history (any device), plus what this device did that the indexer hasn't caught up to.
+    getPayeeHistory: async (address) => {
+      const local = recallActivity(activeChain.id, address);
+      if (!indexerEnabled()) return local;
+      try {
+        return mergeHistory(await indexedPayeeHistory(address), local);
+      } catch {
+        return local;
+      }
+    },
   };
+
 }

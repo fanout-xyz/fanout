@@ -25,7 +25,7 @@ async function deploy() {
   const treasury = await viem.deployContract("Treasury", [ausd.address]);
   const verifierKey = generatePrivateKey();
   const escrow = await viem.deployContract("ClaimEscrow", [ausd.address, treasury.address, privateKeyToAccount(verifierKey).address]);
-  const batchPayout = await viem.deployContract("BatchPayout", [treasury.address, escrow.address, TTL]);
+  const batchPayout = await viem.deployContract("BatchPayout", [treasury.address, escrow.address, 0n]);
   await treasury.write.wire([batchPayout.address, escrow.address]);
   await escrow.write.wire([batchPayout.address]);
 
@@ -150,6 +150,31 @@ describe("BatchPayout", () => {
 
     const [amount, claimPlatform, status, emailHash] = await f.escrow.read.getClaim([batch.signers[0]]);
     assert.deepEqual([amount, claimPlatform, status, emailHash], [batch.amounts[0], getAddress(f.platform.account.address), SENT, batch.emailHashes[0]]);
+  });
+
+  it("a full batch with an email on every row fits Monad's per-transaction gas limit", async () => {
+    // Monad caps a transaction at 30M gas (docs.monad.xyz/developer-essentials/gas-pricing).
+    // Gas here is the Ethereum (Cancun) schedule; Monad prices storage per page and cold access
+    // higher, so the margin we require leaves room for that difference.
+    const MONAD_TX_GAS_LIMIT = 30_000_000n;
+    const f = await networkHelpers.loadFixture(deploy);
+    const gasFor = async (n: number) => {
+      const batch = rows(Array.from({ length: n }, () => usd(1)));
+      const emailHashes = batch.signers.map((s) => keccak256(toHex(`${s}@fanout.tech`)));
+      const hash = await f.asPlatform.batchPayout.write.createBatch([batch.signers, batch.amounts, emailHashes]);
+      return (await publicClient.waitForTransactionReceipt({ hash })).gasUsed;
+    };
+
+    const one = await gasFor(1);
+    const full = await gasFor(150);
+    const perRow = (full - one) / 149n;
+    const maxRows = 1n + (MONAD_TX_GAS_LIMIT - one) / perRow;
+    console.log(
+      `      150 rows, every email set: ${full} gas (${(Number(full) / 1e6).toFixed(2)}M), ` +
+        `${((Number(full) * 100) / Number(MONAD_TX_GAS_LIMIT)).toFixed(0)}% of Monad's 30M; ` +
+        `~${perRow} gas per row, so ~${maxRows} rows would hit the cap`,
+    );
+    assert.ok(full * 10n < MONAD_TX_GAS_LIMIT * 6n, "a full batch should use under 60% of the per-transaction limit");
   });
 
   it("emits BatchCreated with increasing ids", async () => {

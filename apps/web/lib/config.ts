@@ -1,4 +1,5 @@
 import { getAddress, isAddress, zeroAddress, type Address } from "viem";
+import { generatedPayoutsV3 } from "./fanout/abis";
 import { deployedAddresses } from "./fanout/abis/contracts.generated";
 
 // NEXT_PUBLIC_* values are inlined at build time only when read as literal
@@ -29,9 +30,49 @@ export const config = {
     claimEscrow: optionalAddress(process.env.NEXT_PUBLIC_CLAIM_ESCROW_ADDRESS || deployedAddresses.claimEscrow),
   },
 
+  // Whether the payout contracts are v3 (smart-contract/README.md): per-payout claim windows and
+  // paying by email with no MON. On when contracts.generated.ts comes from a v3 deployment;
+  // NEXT_PUBLIC_PAYOUT_CONTRACTS=v3 turns it on for v3 addresses set through the env vars above,
+  // and any other value (e.g. "v2") forces it off.
+  payoutsV3: process.env.NEXT_PUBLIC_PAYOUT_CONTRACTS ? process.env.NEXT_PUBLIC_PAYOUT_CONTRACTS === "v3" : generatedPayoutsV3,
+
+  // Taking payouts as USDC via Agora's AUSD/USDC stable-swap pair (smart-contract/contracts/SettleToUsdc.sol).
+  // Defaults are Monad testnet, where the pair's USDC side is a stand-in token with 18 decimals.
+  // The settle contract defaults to the monad-settle-usdc deployment; set NEXT_PUBLIC_SETTLE_ADDRESS=off to hide the option.
+  usdc: {
+    address: optionalAddress(process.env.NEXT_PUBLIC_USDC_ADDRESS || "0x7BEb5D9DB0d85cBEa543C04f0dE8c23c2176cd9D"),
+    decimals: Number(process.env.NEXT_PUBLIC_USDC_DECIMALS || 18),
+    settle:
+      process.env.NEXT_PUBLIC_SETTLE_ADDRESS === "off"
+        ? undefined
+        : optionalAddress(process.env.NEXT_PUBLIC_SETTLE_ADDRESS || "0xA1ac3cBe75697e4Ad7C5fF393EbC3AE9fa67DeC2"),
+    pair: optionalAddress(process.env.NEXT_PUBLIC_AGORA_PAIR_ADDRESS || "0x1Aa8958Aa34cEC8096EF4381cb335effe977b0ae"),
+  },
+
+  // Envio indexer (indexer/) GraphQL endpoint: payout history, tx links, payee activity. Onchain mode only.
+  // The free Envio plan gives each deployment its own URL, so update this after an indexer redeploy.
+  // "off" = don't use it (fall back to chain reads and this browser's records).
+  indexerUrl:
+    process.env.NEXT_PUBLIC_INDEXER_URL === "off"
+      ? ""
+      : process.env.NEXT_PUBLIC_INDEXER_URL || "https://indexer.dev.hyperindex.xyz/e70db85/v1/graphql",
+
+  // "Get test dollars" on the dashboard (lib/fanout/test-dollars.ts). Onchain it only shows on Monad testnet; "off" hides it.
+  testDollars: process.env.NEXT_PUBLIC_TEST_DOLLARS !== "off",
+
   // Display name shown to payees ("You've been paid $X by <Platform>").
   platformName: process.env.NEXT_PUBLIC_PLATFORM_NAME || "Demo Creator Platform",
 } as const;
+
+/** Whether payees are offered USDC: always in the mock, onchain once SettleToUsdc is configured. */
+export function usdcSettleEnabled(): boolean {
+  return config.useMock || !!(config.usdc.settle && config.usdc.address && config.usdc.pair);
+}
+
+/** Whether a payout can choose when unclaimed money returns: always in the mock, onchain with the v3 contracts. */
+export function claimWindowEnabled(): boolean {
+  return config.useMock || config.payoutsV3;
+}
 
 // The claim signature commits to this address, so it must be the contract that verifies claims.
 export function claimVerifyingContract(): Address {

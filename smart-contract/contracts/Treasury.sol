@@ -5,9 +5,15 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {IERC3009} from "./interfaces/IERC3009.sol";
 import {ITreasury} from "./interfaces/ITreasury.sol";
 
 /// Holds each platform's deposited AUSD until it is sent out in a batch or withdrawn.
+///
+/// Two ways in: `deposit` (the platform approves, then calls it and pays the gas) and
+/// `depositWithAuthorization` (the platform signs one ERC-3009 ReceiveWithAuthorization to this
+/// contract and anyone, e.g. our relayer, submits it). Either way the money is credited to the
+/// account it came from, never to the caller.
 contract Treasury is ITreasury, Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -46,6 +52,24 @@ contract Treasury is ITreasury, Ownable, ReentrancyGuard {
         balanceOf[msg.sender] += amount;
         ausd.safeTransferFrom(msg.sender, address(this), amount);
         emit Deposited(msg.sender, amount);
+    }
+
+    /// Gasless deposit. AUSD checks `from`'s signature, the time window and that the nonce is unused,
+    /// then pays this contract. Only this contract can redeem a ReceiveWithAuthorization made out to it,
+    /// and the balance always goes to `from`, so a submitter can't redirect anything.
+    function depositWithAuthorization(
+        address from,
+        uint256 amount,
+        uint256 validAfter,
+        uint256 validBefore,
+        bytes32 nonce,
+        bytes calldata signature
+    ) external nonReentrant {
+        if (from == address(0)) revert ZeroAddress();
+        if (amount == 0) revert ZeroAmount();
+        balanceOf[from] += amount;
+        IERC3009(address(ausd)).receiveWithAuthorization(from, address(this), amount, validAfter, validBefore, nonce, signature);
+        emit Deposited(from, amount);
     }
 
     function withdraw(uint256 amount) external nonReentrant {

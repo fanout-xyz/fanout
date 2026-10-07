@@ -11,6 +11,7 @@ import {IClaimEscrow} from "./interfaces/IClaimEscrow.sol";
 import {ITreasury} from "./interfaces/ITreasury.sol";
 
 /// Holds each payee's AUSD until they claim it or it expires and is refunded to the platform.
+/// Each claim's expiry comes from its batch's claim window (BatchPayout).
 ///
 /// A claim needs two EIP-191 personal-message signatures (see apps/web/lib/fanout/claim-keys.ts):
 ///   1. The one-time key that only lives in the payee's link (proves they hold the link):
@@ -147,7 +148,22 @@ contract ClaimEscrow is IClaimEscrow, Ownable, ReentrancyGuard {
     function refund(address claimSigner) external nonReentrant {
         Claim storage c = _sentClaim(claimSigner);
         if (block.timestamp < c.expiresAt) revert NotExpired(c.expiresAt);
+        _refund(c, claimSigner);
+    }
 
+    /// Refunds every claim in the list that is still unclaimed and past its expiry; skips the rest
+    /// (unknown, already claimed or refunded, or not expired yet), so a claim landing first can't make
+    /// it fail. Anyone can call it. Returns how many were refunded.
+    function refundMany(address[] calldata claimSigners) external nonReentrant returns (uint256 refunded) {
+        for (uint256 i; i < claimSigners.length; ++i) {
+            Claim storage c = claims[claimSigners[i]];
+            if (c.amount == 0 || c.status != Status.Sent || block.timestamp < c.expiresAt) continue;
+            _refund(c, claimSigners[i]);
+            ++refunded;
+        }
+    }
+
+    function _refund(Claim storage c, address claimSigner) private {
         c.status = Status.Refunded;
         uint256 amount = c.amount;
         address platform = c.platform;

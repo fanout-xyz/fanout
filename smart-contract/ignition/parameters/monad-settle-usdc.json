@@ -1,0 +1,7 @@
+{
+  "SettleToUsdc": {
+    "ausd": "0xa9012a055bd4e0eDfF8Ce09f960291C09D5322dC",
+    "usdc": "0x7BEb5D9DB0d85cBEa543C04f0dE8c23c2176cd9D",
+    "pair": "0x1Aa8958Aa34cEC8096EF4381cb335effe977b0ae"
+  }
+}

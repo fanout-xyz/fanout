@@ -12,5 +12,168 @@ export const erc20Abi = [
   { type: "function", name: "transfer", stateMutability: "nonpayable", inputs: [{ name: "to", type: "address" }, { name: "amount", type: "uint256" }], outputs: [{ type: "bool" }] },
 ] as const;
 
+import { batchPayoutAbi as generatedBatchPayoutAbi } from "./contracts.generated";
+
 // Treasury, BatchPayout and ClaimEscrow ABIs come from the Monad testnet deployment.
 export { batchPayoutAbi, claimEscrowAbi, treasuryAbi } from "./contracts.generated";
+// What the v3 contracts add, usable before contracts.generated.ts is regenerated from them.
+export { batchPayoutV3Abi, claimEscrowV3Abi, treasuryV3Abi } from "./v3";
+
+/** True once contracts.generated.ts comes from a v3 deployment (export-abis monad-v3). */
+export const generatedPayoutsV3 = (generatedBatchPayoutAbi as readonly { name?: string }[]).some((x) => x.name === "createBatchFor");
+
+/**
+ * SettleToUsdc (smart-contract/contracts/SettleToUsdc.sol). Hand-written because it is deployed on
+ * its own, apart from the payout contracts export-abis reads; keep it in step with the contract.
+ */
+export const settleToUsdcAbi = [
+  {
+    type: "function",
+    name: "settle",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "from", type: "address" },
+      { name: "value", type: "uint256" },
+      { name: "validAfter", type: "uint256" },
+      { name: "validBefore", type: "uint256" },
+      { name: "salt", type: "bytes32" },
+      { name: "minOut", type: "uint256" },
+      { name: "signature", type: "bytes" },
+    ],
+    outputs: [{ name: "amountOut", type: "uint256" }],
+  },
+  { type: "function", name: "ausd", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
+  { type: "function", name: "usdc", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
+  { type: "function", name: "pair", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
+  {
+    type: "event",
+    name: "SettledToUsdc",
+    inputs: [
+      { name: "from", type: "address", indexed: true },
+      { name: "amountIn", type: "uint256", indexed: false },
+      { name: "amountOut", type: "uint256", indexed: false },
+    ],
+  },
+  { type: "error", name: "ZeroAddress", inputs: [] },
+  { type: "error", name: "ZeroAmount", inputs: [] },
+] as const;
+
+/** The parts of Agora's stable-swap pair we read, plus its swap errors so a failed settle decodes by name. */
+export const agoraPairAbi = [
+  {
+    type: "function",
+    name: "getAmountsOut",
+    stateMutability: "view",
+    inputs: [{ name: "amountIn", type: "uint256" }, { name: "path", type: "address[]" }],
+    outputs: [{ type: "uint256[]" }],
+  },
+  {
+    type: "function",
+    name: "hasRole",
+    stateMutability: "view",
+    inputs: [{ name: "role", type: "string" }, { name: "account", type: "address" }],
+    outputs: [{ type: "bool" }],
+  },
+  { type: "error", name: "Expired", inputs: [] },
+  { type: "error", name: "InsufficientOutputAmount", inputs: [] },
+  { type: "error", name: "InsufficientLiquidity", inputs: [] },
+  { type: "error", name: "PairIsPaused", inputs: [] },
+  { type: "error", name: "PriceExpired", inputs: [] },
+] as const;
+
+/**
+ * AUSD's ERC-3009 transferWithAuthorization (the `bytes signature` overload, which Agora AUSD
+ * exposes next to the v/r/s one), plus the errors it reverts with so a failed send decodes by name.
+ */
+export const transferWithAuthorizationAbi = [
+  {
+    type: "function",
+    name: "transferWithAuthorization",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "from", type: "address" },
+      { name: "to", type: "address" },
+      { name: "value", type: "uint256" },
+      { name: "validAfter", type: "uint256" },
+      { name: "validBefore", type: "uint256" },
+      { name: "nonce", type: "bytes32" },
+      { name: "signature", type: "bytes" },
+    ],
+    outputs: [],
+  },
+  { type: "error", name: "ExpiredAuthorization", inputs: [] },
+  { type: "error", name: "InvalidAuthorization", inputs: [] },
+  { type: "error", name: "UsedOrCanceledAuthorization", inputs: [] },
+  { type: "error", name: "InvalidSignature", inputs: [] },
+  {
+    type: "error",
+    name: "ERC20InsufficientBalance",
+    inputs: [
+      { name: "sender", type: "address" },
+      { name: "balance", type: "uint256" },
+      { name: "needed", type: "uint256" },
+    ],
+  },
+] as const;
+
+/** ERC-3009: whether `authorizer` has used (or cancelled) `nonce`. */
+export const authorizationStateAbi = [
+  {
+    type: "function",
+    name: "authorizationState",
+    stateMutability: "view",
+    inputs: [
+      { name: "authorizer", type: "address" },
+      { name: "nonce", type: "bytes32" },
+    ],
+    outputs: [{ type: "bool" }],
+  },
+] as const;
+
+/** ERC-5267 EIP-712 domain, e.g. Agora AUSD's ("Agora Dollar", version "1"). */
+export const eip712DomainAbi = [
+  {
+    type: "function",
+    name: "eip712Domain",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [
+      { name: "fields", type: "bytes1" },
+      { name: "name", type: "string" },
+      { name: "version", type: "string" },
+      { name: "chainId", type: "uint256" },
+      { name: "verifyingContract", type: "address" },
+      { name: "salt", type: "bytes32" },
+      { name: "extensions", type: "uint256[]" },
+    ],
+  },
+] as const;
+
+/**
+ * Agora's AUSD faucet on Monad testnet (a proxy; read from its bytecode and checked on a fork).
+ * requestFunds(to) sends faucetDripAmount to `to`, not to the caller. It refuses a recipient already
+ * holding maxAmountToOwn or more (MaxAllowedExceeded), and any request, from anyone, within
+ * maxDripFrequency seconds of the last one (MaxFrequencyExceeded).
+ */
+export const agoraFaucetAbi = [
+  { type: "function", name: "requestFunds", stateMutability: "nonpayable", inputs: [{ name: "to", type: "address" }], outputs: [] },
+  { type: "function", name: "faucetDripAmount", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
+  { type: "function", name: "maxAmountToOwn", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
+  { type: "function", name: "maxDripFrequency", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
+  { type: "function", name: "lastDripTimestamp", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
+  { type: "error", name: "MaxFrequencyExceeded", inputs: [] },
+  { type: "error", name: "MaxAllowedExceeded", inputs: [] },
+] as const;
+
+/** ERC-20 Transfer, to read how much a faucet request actually sent. */
+export const transferEventAbi = [
+  {
+    type: "event",
+    name: "Transfer",
+    inputs: [
+      { name: "from", type: "address", indexed: true },
+      { name: "to", type: "address", indexed: true },
+      { name: "value", type: "uint256", indexed: false },
+    ],
+  },
+] as const;

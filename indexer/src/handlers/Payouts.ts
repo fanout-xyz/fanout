@@ -3,12 +3,34 @@ import { activityId, getPayee, getPlatform } from "./shared";
 
 // Within one createBatch transaction the order is Debited, ClaimOpened (one per row),
 // then BatchCreated. So ClaimOpened points at a batch that BatchCreated writes a few logs later.
+// (depositAndCreateBatchFor on v3 adds Deposited before them; the order after it is the same.)
+//
+// The payout's claim window end comes only with ClaimOpened, so the first ClaimOpened starts the
+// Batch with it and BatchCreated fills in the rest. Both deployments (monad-ausd and monad-v3) emit
+// the same events, and v3 payout ids start after monad-ausd's, so they share these entities.
 
 indexer.onEvent({ contract: "ClaimEscrow", event: "ClaimOpened" }, async ({ event, context }) => {
   const { claimSigner, platform: platformId, batchId, amount, expiresAt } = event.params;
+  const id = batchId.toString();
+  if (!(await context.Batch.get(id))) {
+    context.Batch.set({
+      id,
+      platform_id: platformId,
+      batchPayout: "",
+      expiresAt: Number(expiresAt),
+      total: 0n,
+      rowCount: 0,
+      claimedCount: 0,
+      claimedAmount: 0n,
+      refundedCount: 0,
+      refundedAmount: 0n,
+      createdAt: event.block.timestamp,
+      txHash: event.transaction.hash,
+    });
+  }
   context.Claim.set({
     id: claimSigner,
-    batch_id: batchId.toString(),
+    batch_id: id,
     platform_id: platformId,
     amount,
     expiresAt: Number(expiresAt),
@@ -26,9 +48,12 @@ indexer.onEvent({ contract: "ClaimEscrow", event: "ClaimOpened" }, async ({ even
 indexer.onEvent({ contract: "BatchPayout", event: "BatchCreated" }, async ({ event, context }) => {
   const { batchId, platform: platformId, total, count } = event.params;
   const id = batchId.toString();
+  const opened = await context.Batch.get(id);
   context.Batch.set({
     id,
     platform_id: platformId,
+    batchPayout: event.srcAddress,
+    expiresAt: opened?.expiresAt,
     total,
     rowCount: Number(count),
     claimedCount: 0,

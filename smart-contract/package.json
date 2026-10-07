@@ -11,7 +11,10 @@
     "deploy:monad": "hardhat ignition deploy ignition/modules/Fanout.ts --network monadTestnet",
     "deploy:monad:test-ausd": "hardhat ignition deploy ignition/modules/FanoutTestAusd.ts --network monadTestnet --deployment-id monad-test-ausd",
     "deploy:monad:v2": "hardhat ignition deploy ignition/modules/Fanout.ts --network monadTestnet --parameters ignition/parameters/monad-v2.json --deployment-id monad-v2",
-    "deploy:monad:ausd": "hardhat ignition deploy ignition/modules/Fanout.ts --network monadTestnet --parameters ignition/parameters/monad-ausd.json --deployment-id monad-ausd"
+    "deploy:monad:ausd": "hardhat ignition deploy ignition/modules/Fanout.ts --network monadTestnet --parameters ignition/parameters/monad-ausd.json --deployment-id monad-ausd",
+    "deploy:monad:v3": "hardhat ignition deploy ignition/modules/Fanout.ts --network monadTestnet --parameters ignition/parameters/monad-v3.json --deployment-id monad-v3",
+    "deploy:monad:settle-usdc": "hardhat ignition deploy ignition/modules/SettleToUsdc.ts --network monadTestnet --parameters ignition/parameters/monad-settle-usdc.json --deployment-id monad-settle-usdc",
+    "approve-swapper": "hardhat run scripts/approve-swapper.ts"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-ignition": "^3.1.8",

@@ -3,6 +3,7 @@
 import { m, useInView, useReducedMotion } from "motion/react";
 import { useRef } from "react";
 import { cn } from "@/lib/utils";
+import { FeeTable } from "./fee-table";
 import { DAYS, FANOUT_RESULT_CENTS, FEE_AT, SENT_CENTS, WIRE_FEES, WIRE_RESULT_CENTS, afterFees } from "./fees";
 import { RaceLane } from "./race-lane";
 import { useRace } from "./use-race";
@@ -109,6 +110,8 @@ export function RaceSection() {
             </button>
           )}
         </div>
+
+        <FeeTable />
       </div>
     </section>
   );

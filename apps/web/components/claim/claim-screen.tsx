@@ -28,6 +28,8 @@ type Props = {
   error?: string | null;
   /** Shown under the success message (e.g. "See your balance"). */
   successAction?: ReactNode;
+  /** Shown under the amount (e.g. the amount in the payee's local currency). */
+  localAmount?: ReactNode;
   className?: string;
 };
 
@@ -51,6 +53,7 @@ export function ClaimScreen({
   hint,
   error,
   successAction,
+  localAmount,
   className,
 }: Props) {
   return (
@@ -70,6 +73,7 @@ export function ClaimScreen({
             transition={{ duration: 0.22, ease: EASE_OUT }}
           >
             <Success amountCents={amountCents} reduced={reduced} />
+            {localAmount && <div className="mt-3">{localAmount}</div>}
             {successAction && <div className="mt-10 w-full">{successAction}</div>}
           </m.div>
         ) : (
@@ -84,6 +88,7 @@ export function ClaimScreen({
               <p className="mt-2 font-display text-[64px] leading-none tracking-[-0.03em] text-foreground tabular-nums">
                 {formatCents(amountCents)}
               </p>
+              {localAmount && <div className="mt-3">{localAmount}</div>}
               <p className="mt-5 rounded-full bg-mint-surface px-3 py-1.5 text-xs font-semibold text-balance text-on-mint">
                 from {platform}
                 {note ? ` · ${note}` : ""}

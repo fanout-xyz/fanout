@@ -10,6 +10,10 @@ import { PetalsMark } from "@/components/brand/petals-mark";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AccountSetup } from "@/components/payee/account-setup";
+import { InstallPrompt } from "@/components/payee/install-prompt";
+import { PushPrompt } from "@/components/payee/push-prompt";
+import { LocalAmount } from "@/components/payee/local-amount";
+import { UsdcOffer } from "@/components/payee/usdc-offer";
 import { useAuth } from "@/lib/auth/provider";
 import { activeChain } from "@/lib/chains";
 import { claimVerifyingContract, config } from "@/lib/config";
@@ -18,6 +22,7 @@ import { NotFoundError } from "@/lib/fanout/client";
 import { useFanoutClient } from "@/lib/fanout/use-fanout-client";
 import { formatUsd, toCents } from "@/lib/money";
 import { usePayeeAccount } from "@/lib/payee/payee-account";
+import { useLocalCurrency } from "@/lib/use-local-currency";
 import { ClaimScreen, type ClaimScreenState } from "./claim-screen";
 
 // The key lives in the URL fragment (#k=...), which browsers never send to a server.
@@ -40,6 +45,7 @@ function ClaimForKey({ privateKey }: { privateKey: Hex | null | undefined }) {
   const queryClient = useQueryClient();
   const { ready, authenticated, user, login, logout, provider } = useAuth();
   const reduced = useReducedMotion() ?? false;
+  const { currency: localCurrency } = useLocalCurrency();
   const [phase, setPhase] = useState<ClaimScreenState>("ready");
   const [error, setError] = useState<string | null>(null);
   const [wantsClaim, setWantsClaim] = useState(false);
@@ -73,6 +79,11 @@ function ClaimForKey({ privateKey }: { privateKey: Hex | null | undefined }) {
         posthog.capture("claim_completed", {
           amount_usd: Number(info.data?.amount ?? 0n) / 1e6,
           demo_mode: config.useMock,
+          // Which currency the payee sees: a proxy for the payout country.
+          local_currency: localCurrency ?? "USD",
+          // Person properties for retention: split payees from platforms, and know when each started.
+          $set: { is_payee: true },
+          $set_once: { first_claim_at: new Date().toISOString() },
         });
         // The key stays in the URL: once claimed it's spent (a second claim is refused), and
         // the page needs it to keep showing this payment.
@@ -87,7 +98,7 @@ function ClaimForKey({ privateKey }: { privateKey: Hex | null | undefined }) {
         setWantsClaim(false);
       }
     },
-    [privateKey, claimSigner, client, queryClient, info],
+    [privateKey, claimSigner, client, queryClient, info, localCurrency],
   );
 
   // After sign-in (and the account being ready), continue the claim the payee started.
@@ -158,7 +169,16 @@ function ClaimForKey({ privateKey }: { privateKey: Hex | null | undefined }) {
           actionLabel={`Claim ${amountLabel}`}
           hint={!authenticated ? signInHint(provider) : undefined}
           error={error}
-          successAction={<BalanceLink />}
+          successAction={
+            <>
+              {/* Claiming and changing to USDC are separate steps: the claim lands first, then this is offered. */}
+              <UsdcOffer amount={claim.amount} source="claim" className="mb-4" />
+              <BalanceLink />
+              <InstallPrompt className="mt-4" />
+              <PushPrompt source="claim" className="mt-4" />
+            </>
+          }
+          localAmount={<LocalAmount cents={toCents(claim.amount)} />}
         />
       </div>
       {ready && authenticated && phase !== "success" && (
@@ -198,7 +218,7 @@ function humanClaimError(err: unknown): string {
 function BalanceLink() {
   return (
     <Button asChild size="lg" variant="secondary" className="h-14 w-full">
-      <Link href="/wallet">See your balance</Link>
+      <Link href="/balance">See your balance</Link>
     </Button>
   );
 }

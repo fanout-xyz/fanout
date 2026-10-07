@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import posthog from "posthog-js";
-import { useMemo, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { toast } from "sonner";
 import { zeroHash } from "viem";
 import { StatusChip } from "@/components/status-chip";
 import { Spinner } from "@/components/tx-progress";
@@ -24,10 +25,13 @@ import { config } from "@/lib/config";
 import { buildClaimLink } from "@/lib/fanout/claim-keys";
 import { loadAllClaims, subscribeClaims, type StoredClaim } from "@/lib/fanout/claim-link-store";
 import type { PayoutStatus } from "@/lib/fanout/client";
-import { useBatch, useMockExpireUnclaimed } from "@/lib/fanout/queries";
+import { claimProgress } from "@/lib/claim-progress";
+import { useBatch, useMockExpireUnclaimed, useRefundExpired } from "@/lib/fanout/queries";
 import { formatUsd } from "@/lib/money";
 import { cn } from "@/lib/utils";
+import { ClaimCounter } from "./claim-counter";
 import { ClaimLinkActions } from "./claim-link-actions";
+import { SimulateClaimsButton } from "./simulate-claims";
 import { EmailLinkButton, emailedLabel, UnclaimedReminder } from "./claim-reminders";
 
 const dateFormat = new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short" });
@@ -70,8 +74,9 @@ export function BatchDetail({ id }: { id: string }) {
     return (
       <div className="flex flex-col gap-6" aria-busy="true" aria-label="Loading payout">
         <Skeleton className="h-9 w-56" />
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {[0, 1, 2, 3].map((i) => (
+        <Skeleton className="h-40 rounded-lg" />
+        <div className="grid gap-4 sm:grid-cols-3">
+          {[0, 1, 2].map((i) => (
             <Skeleton key={i} className="h-24 rounded-lg" />
           ))}
         </div>
@@ -102,6 +107,7 @@ export function BatchDetail({ id }: { id: string }) {
   const sum = (s: PayoutStatus) => rows.filter((r) => r.status === s).reduce((t, r) => t + r.amount, 0n);
   const count = (s: PayoutStatus) => rows.filter((r) => r.status === s).length;
   const counts: Record<Filter, number> = { all: rows.length, sent: count("sent"), claimed: count("claimed"), refunded: count("refunded") };
+  const progress = claimProgress(rows);
   const visible = filter === "all" ? rows : rows.filter((r) => r.status === filter);
   const hasTx = b.txHash !== zeroHash;
   const linksMissing = rows.length > 0 && rows.every((r) => !r.claim);
@@ -138,6 +144,7 @@ export function BatchDetail({ id }: { id: string }) {
           <p className="mt-1 text-muted">
             Sent {dateFormat.format(b.createdAt)} · {rows.length} {rows.length === 1 ? "person" : "people"} · one transaction
           </p>
+          {b.expiresAt !== undefined && counts.sent > 0 && <ClaimExpiry expiresAt={b.expiresAt} />}
         </div>
         <div className="flex flex-wrap items-center gap-3">
           {hasTx &&
@@ -154,9 +161,10 @@ export function BatchDetail({ id }: { id: string }) {
         </div>
       </div>
 
-      <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Stat label="Total sent" value={formatUsd(b.total)} />
-        <Stat label="Claimed" value={formatUsd(sum("claimed"))} sub={`${counts.claimed} of ${rows.length} people`} />
+      <ClaimCounter progress={progress} />
+
+      <dl className="grid gap-4 sm:grid-cols-3">
+        <Stat label="Total sent" value={formatUsd(b.total)} sub={`${rows.length} ${rows.length === 1 ? "person" : "people"}`} />
         <Stat label="Waiting to be claimed" value={formatUsd(sum("sent"))} sub={`${counts.sent} ${counts.sent === 1 ? "person" : "people"}`} />
         <Stat label="Returned to balance" value={formatUsd(sum("refunded"))} sub={`${counts.refunded} unclaimed`} />
       </dl>
@@ -166,6 +174,10 @@ export function BatchDetail({ id }: { id: string }) {
           Claim links and emails for this payout aren&apos;t stored in this browser. They&apos;re kept only on the device that
           created the payout.
         </p>
+      )}
+
+      {b.expiresAt !== undefined && counts.sent > 0 && (
+        <ReturnUnclaimed batchId={id} expiresAt={b.expiresAt} waiting={counts.sent} amount={sum("sent")} />
       )}
 
       <UnclaimedReminder
@@ -200,35 +212,37 @@ export function BatchDetail({ id }: { id: string }) {
           <p className="px-6 py-12 text-center text-muted">Nobody here yet.</p>
         ) : (
           <div className="max-h-[640px] overflow-auto">
-            <table className="w-full min-w-[760px] text-left text-[15px] whitespace-nowrap">
+            <table className="w-full min-w-[640px] text-left text-[15px] whitespace-nowrap">
               <thead className="sticky top-0 z-10 bg-surface text-sm text-muted shadow-[0_1px_0_var(--border)]">
                 <tr>
-                  <th scope="col" className="w-14 px-6 py-3 font-semibold">#</th>
-                  <th scope="col" className="px-6 py-3 font-semibold">Email</th>
-                  <th scope="col" className="px-6 py-3 text-right font-semibold">Amount</th>
-                  <th scope="col" className="px-6 py-3 font-semibold">Note</th>
-                  <th scope="col" className="px-6 py-3 font-semibold">Status</th>
-                  <th scope="col" className="px-6 py-3 text-right font-semibold">Claim link</th>
+                  <th scope="col" className="hidden w-14 px-4 py-3 font-semibold xl:table-cell 2xl:px-6">#</th>
+                  <th scope="col" className="px-4 2xl:px-6 py-3 font-semibold">Email</th>
+                  <th scope="col" className="px-4 2xl:px-6 py-3 text-right font-semibold">Amount</th>
+                  <th scope="col" className="hidden px-4 py-3 font-semibold xl:table-cell 2xl:px-6">Note</th>
+                  <th scope="col" className="px-4 2xl:px-6 py-3 font-semibold">Status</th>
+                  <th scope="col" className="px-4 2xl:px-6 py-3 text-right font-semibold">Claim link</th>
                 </tr>
               </thead>
               <tbody>
                 {visible.map((r) => (
                   <tr key={r.claimSigner} className="border-b border-line transition-colors duration-150 last:border-b-0 hover:bg-card-raised">
-                    <td className="h-13 px-6 text-muted tabular-nums">{r.n}</td>
-                    <td className="max-w-[18rem] truncate px-6" title={r.claim?.email}>
+                    <td className="hidden h-13 px-4 text-muted tabular-nums xl:table-cell 2xl:px-6">{r.n}</td>
+                    <td className="h-13 max-w-[14rem] truncate px-4 xl:max-w-[18rem] 2xl:px-6" title={r.claim?.email}>
                       {r.claim?.email ?? <span className="text-muted">Person {r.n}</span>}
                       {r.claim && r.status === "sent" && (
                         <span className="block text-xs text-muted">{emailedLabel(r.claim)}</span>
                       )}
+                      {/* The Note column is hidden below xl; show the note here instead. */}
+                      {r.claim?.note && <span className="block truncate text-xs text-muted xl:hidden">{r.claim.note}</span>}
                     </td>
-                    <td className="px-6 text-right font-bold tabular-nums">{formatUsd(r.amount)}</td>
-                    <td className="max-w-[12rem] truncate px-6 text-muted" title={r.claim?.note}>
+                    <td className="px-4 2xl:px-6 text-right font-bold tabular-nums">{formatUsd(r.amount)}</td>
+                    <td className="hidden max-w-[12rem] truncate px-4 text-muted xl:table-cell 2xl:px-6" title={r.claim?.note}>
                       {r.claim?.note}
                     </td>
-                    <td className="px-6">
+                    <td className="px-4 2xl:px-6">
                       <StatusChip status={r.status} />
                     </td>
-                    <td className="px-6 py-2">
+                    <td className="px-4 2xl:px-6 py-2">
                       {r.status !== "sent" ? (
                         <span className="block text-right text-sm text-muted">{r.status === "claimed" ? "Used" : "Expired"}</span>
                       ) : r.claim && origin ? (
@@ -255,6 +269,7 @@ export function BatchDetail({ id }: { id: string }) {
       {config.useMock && counts.sent > 0 && (
         <div className="flex flex-wrap items-center gap-3 text-sm text-muted">
           <span>Demo:</span>
+          <SimulateClaimsButton batchId={id} waiting={counts.sent} />
           <Dialog>
             <DialogTrigger asChild>
               <Button variant="ghost" size="sm">
@@ -296,6 +311,63 @@ export function BatchDetail({ id }: { id: string }) {
           </Dialog>
         </div>
       )}
+    </div>
+  );
+}
+
+/** The current time, refreshed every `ms`, so a short claim window visibly runs out without a reload. */
+function useNow(ms: number) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), ms);
+    return () => clearInterval(t);
+  }, [ms]);
+  return now;
+}
+
+/** "Unclaimed money returns to your balance after Oct 9, 3:10 PM", or that it can now. */
+function ClaimExpiry({ expiresAt }: { expiresAt: number }) {
+  const now = useNow(15_000);
+  return (
+    <p className="mt-1 text-sm text-muted">
+      {now >= expiresAt
+        ? `Claim window ended ${dateFormat.format(expiresAt)}. Unclaimed money can return to your balance.`
+        : `Unclaimed money can return to your balance after ${dateFormat.format(expiresAt)}.`}
+    </p>
+  );
+}
+
+/**
+ * Once the claim window has passed, returns what nobody claimed to the payout balance
+ * (ClaimEscrow.refundMany). The platform's own account sends it, like the payout itself.
+ */
+function ReturnUnclaimed({ batchId, expiresAt, waiting, amount }: { batchId: string; expiresAt: number; waiting: number; amount: bigint }) {
+  const now = useNow(15_000);
+  const refund = useRefundExpired(batchId);
+  if (now < expiresAt) return null;
+  return (
+    <div role="status" className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-line bg-card-raised px-4 py-3">
+      <p className="text-sm">
+        {waiting} {waiting === 1 ? "person" : "people"} didn&apos;t claim in time. Return {formatUsd(amount)} to your balance; their links
+        stop working.
+      </p>
+      <div className="flex flex-col items-end gap-1">
+        <Button
+          size="sm"
+          disabled={refund.isPending}
+          onClick={() =>
+            refund.mutate(undefined, {
+              onSuccess: ({ refunded }) => {
+                posthog.capture("unclaimed_payouts_returned", { recipient_count: refunded, total_usd: Number(amount) / 1e6 });
+                toast.success(`Returned ${formatUsd(amount)} to your balance.`);
+              },
+            })
+          }
+        >
+          {refund.isPending ? <Spinner className="size-4" /> : null} Return unclaimed money
+        </Button>
+        {refund.isError && <p className="text-sm text-danger">{refund.error.message}</p>}
+      </div>
     </div>
   );
 }

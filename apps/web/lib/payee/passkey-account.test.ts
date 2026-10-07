@@ -2,7 +2,7 @@ import { entropyToMnemonic } from "@scure/bip39";
 import { wordlist } from "@scure/bip39/wordlists/english";
 import { mnemonicToAccount } from "viem/accounts";
 import { describe, expect, it } from "vitest";
-import { accountFromPrf } from "./passkey-account";
+import { accountFromPrf, passkeyRpId } from "./passkey-account";
 
 describe("accountFromPrf", () => {
   it("derives the standard first Ethereum account of the PRF's BIP-39 phrase", async () => {
@@ -22,5 +22,19 @@ describe("accountFromPrf", () => {
     const b = new Uint8Array(32).fill(2);
     expect(accountFromPrf(a.slice()).address).toBe(accountFromPrf(a.slice()).address);
     expect(accountFromPrf(a.slice()).address).not.toBe(accountFromPrf(b.slice()).address);
+  });
+});
+
+describe("passkeyRpId", () => {
+  it("shares one passkey across fanout.tech and all its subdomains", () => {
+    for (const host of ["fanout.tech", "demo.fanout.tech", "wallet.fanout.tech", "www.fanout.tech"]) {
+      expect(passkeyRpId(host)).toBe("fanout.tech");
+    }
+  });
+
+  it("keeps the page's own host elsewhere", () => {
+    expect(passkeyRpId("localhost")).toBe("localhost");
+    expect(passkeyRpId("fanout-git-main.vercel.app")).toBe("fanout-git-main.vercel.app");
+    expect(passkeyRpId("notfanout.tech")).toBe("notfanout.tech");
   });
 });

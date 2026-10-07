@@ -22,6 +22,28 @@ export type Batch = {
   rows: BatchRow[];
   /** PROPOSED: tx that created the batch, for the "View transaction" link. */
   txHash: Hex;
+  /** When unclaimed rows can be returned to the platform's balance (unix ms). */
+  expiresAt?: number;
+};
+
+export type PayoutOptions = {
+  /**
+   * How long claim links work before unclaimed money can return (seconds; lib/claim-window.ts).
+   * Omitted or 30 days = the default. Anything else needs the v3 contracts (config.payoutsV3).
+   */
+  claimWindowSeconds?: number;
+};
+
+export type PayoutResult = { batchId: string; txHash: Hex };
+
+export type PayFromAccountResult = PayoutResult & {
+  /** True when the account only signed and our relayer paid the fees; false when it sent the transactions itself. */
+  gasless: boolean;
+};
+
+export type RefundResult = TxResult & {
+  /** How many unclaimed rows went back to the balance. */
+  refunded: number;
 };
 
 export type ClaimInfo = {
@@ -32,7 +54,7 @@ export type ClaimInfo = {
 };
 
 /** PROPOSED */
-export type BatchSummary = Pick<Batch, "id" | "createdAt" | "total" | "txHash"> & {
+export type BatchSummary = Pick<Batch, "id" | "createdAt" | "total" | "txHash" | "expiresAt"> & {
   rowCount: number;
   claimedCount: number;
 };
@@ -44,6 +66,25 @@ export type PayeeHistoryItem = {
   counterparty: Address;
   txHash: Hex;
   timestamp: number; // unix ms
+  /** True when this row is a claimed platform payout, not a transfer. Payouts count as income. */
+  payout?: boolean;
+  /** True on the "sent" row when the payee changed dollars to USDC: their own money, not a payment to anyone. */
+  toUsdc?: boolean;
+};
+
+export type UsdcSettleResult = TxResult & {
+  /** USDC received, in USDC base units (config.usdc.decimals). */
+  amountOut: bigint;
+};
+
+export type GaslessSendResult = TxResult & {
+  /** True when our relayer paid the fee; false when it went from the payee's own account instead. */
+  gasless: boolean;
+};
+
+export type TestDollarsResult = TxResult & {
+  /** Test dollars received, in AUSD base units. */
+  amount: bigint;
 };
 
 /** Thrown when a batch or claim doesn't exist. Not worth retrying. */

@@ -37,10 +37,14 @@ type Platform {
   activity: [PlatformActivity!]! @derivedFrom(field: "platform")
 }
 
-"One CSV payout: BatchPayout.createBatch."
+"One CSV payout: BatchPayout.createBatch (or createBatchFor / depositAndCreateBatchFor on v3)."
 type Batch @index(fields: ["platform", ["createdAt", "DESC"]]) {
   id: ID!
   platform: Platform!
+  "The BatchPayout contract that created it, so the app can ask for one deployment's payouts."
+  batchPayout: String! @index
+  "When unclaimed rows can be refunded: the payout's claim window end (every row shares it)."
+  expiresAt: Int
   total: BigInt!
   rowCount: Int!
   claimedCount: Int!

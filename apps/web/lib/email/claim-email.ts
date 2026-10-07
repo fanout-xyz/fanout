@@ -8,6 +8,8 @@ export type ClaimEmailInput = {
   platformName: string;
   amount: bigint;
   link: string;
+  /** Where the payee checks their balance later (e.g. https://wallet.fanout.tech). */
+  balanceUrl?: string;
   /** Optional note from the platform's CSV (e.g. "September payout"). Escaped, never trusted. */
   note?: string;
   /** When unclaimed money goes back to the platform, unix seconds. */
@@ -27,14 +29,21 @@ export function cleanNote(note: string | undefined): string | undefined {
   return flat;
 }
 
-function formatDate(unixSeconds: number): string {
-  return new Date(unixSeconds * 1000).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" });
+/** A payout can give as little as minutes to claim; then the date alone isn't enough, so add the time. */
+const SHOW_TIME_WITHIN_MS = 2 * 24 * 60 * 60 * 1000;
+
+function formatDate(unixSeconds: number, now: number): string {
+  const at = new Date(unixSeconds * 1000);
+  const date = at.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" });
+  if (at.getTime() - now >= SHOW_TIME_WITHIN_MS) return date;
+  return `${date}, ${at.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "UTC" })} UTC`;
 }
 
-export function claimEmail({ platformName, amount, link, note, expiresAt, reminder }: ClaimEmailInput) {
+export function claimEmail({ platformName, amount, link, balanceUrl, note, expiresAt, reminder }: ClaimEmailInput, now = Date.now()) {
   const usd = formatUsd(amount);
   const safeNote = cleanNote(note);
-  const by = expiresAt ? formatDate(expiresAt) : null;
+  const by = expiresAt ? formatDate(expiresAt, now) : null;
+  const balanceHost = balanceUrl ? new URL(balanceUrl).host : null;
   const subject = `${reminder ? "Reminder: " : ""}${platformName} sent you ${usd}`;
 
   const text = [
@@ -46,6 +55,7 @@ export function claimEmail({ platformName, amount, link, note, expiresAt, remind
     "",
     "Sign in with this email address to receive it. It takes about a minute.",
     by ? `Claim it by ${by}. After that, the money goes back to ${platformName}.` : null,
+    balanceUrl ? `Check your balance anytime at ${balanceUrl}` : null,
     "",
     "This link is only for you. Don't forward it.",
     "Fanout sends payouts for platforms. You didn't expect this? You can ignore this email.",
@@ -70,6 +80,7 @@ ${safeNote ? p(escapeHtml(safeNote), "color:#5A5A70;") : ""}
 </td></tr></table>
 ${p("Sign in with this email address to receive it. It takes about a minute.")}
 ${by ? p(`Claim it by ${escapeHtml(by)}. After that, the money goes back to ${escapeHtml(platformName)}.`) : ""}
+${balanceUrl && balanceHost ? p(`Check your balance anytime at <a href="${escapeHtml(balanceUrl)}" style="color:#3355FF;">${escapeHtml(balanceHost)}</a>.`) : ""}
 <p style="margin:24px 0 0;font-size:13px;line-height:20px;color:#5A5A70;">This link is only for you. Don't forward it. Fanout sends payouts for platforms. You didn't expect this? You can ignore this email.</p>
 </td></tr></table>
 </td></tr></table>
