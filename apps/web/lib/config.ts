@@ -55,7 +55,7 @@ export const config = {
   indexerUrl:
     process.env.NEXT_PUBLIC_INDEXER_URL === "off"
       ? ""
-      : process.env.NEXT_PUBLIC_INDEXER_URL || "https://indexer.dev.hyperindex.xyz/e70db85/v1/graphql",
+      : process.env.NEXT_PUBLIC_INDEXER_URL || "https://indexer.dev.hyperindex.xyz/1b4e07c/v1/graphql",
 
   // "Get test dollars" on the dashboard (lib/fanout/test-dollars.ts). Onchain it only shows on Monad testnet; "off" hides it.
   testDollars: process.env.NEXT_PUBLIC_TEST_DOLLARS !== "off",
