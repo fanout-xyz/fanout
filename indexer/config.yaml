@@ -12,13 +12,12 @@ chains:
     start_block: 66791223
     # Each contract lists the monad-ausd address, then the monad-v3 one. The v3 events are the same as
     # monad-ausd's, and v3 payout ids start at 1001, so both deployments share these entities.
-    # After deploying monad-v3: uncomment its three addresses below, fill them in from
-    # smart-contract/ignition/deployments/monad-v3/deployed_addresses.json, then `pnpm codegen` and resync.
+    # Addresses from smart-contract/ignition/deployments/*/deployed_addresses.json. monad-v3 deployed at block 68874807.
     contracts:
       - name: Treasury
         address:
           - "0x245C9b855fd63395BccEC46f7Bac2671e18e79fE" # monad-ausd
-          # - "0x0000000000000000000000000000000000000000" # monad-v3 Treasury: fill in after deploy
+          - "0xecC2616C45a55AEA2d33374E4B99D64d0900255c" # monad-v3
         events:
           - event: Deposited(address indexed platform, uint256 amount)
           - event: Withdrawn(address indexed platform, uint256 amount)
@@ -27,13 +26,13 @@ chains:
       - name: BatchPayout
         address:
           - "0xfc15b4f0811C6F88e8D572cFB01fCE5b166FE3dF" # monad-ausd
-          # - "0x0000000000000000000000000000000000000000" # monad-v3 BatchPayout: fill in after deploy
+          - "0x01aD7B7A7Ab17ffE4fDFE4644828167702338386" # monad-v3
         events:
           - event: BatchCreated(uint256 indexed batchId, address indexed platform, uint256 total, uint256 count)
       - name: ClaimEscrow
         address:
           - "0xf1de07BFfAF3D3D4279399D63049F0C01b8aFD11" # monad-ausd
-          # - "0x0000000000000000000000000000000000000000" # monad-v3 ClaimEscrow: fill in after deploy
+          - "0x15DaAD3E6200051AE2F956ba32cD8033e82d40B6" # monad-v3
         events:
           # expiresAt is each payout's own claim window end on v3 (30 days after creation on monad-ausd).
           - event: ClaimOpened(address indexed claimSigner, address indexed platform, uint256 indexed batchId, uint256 amount, uint64 expiresAt)

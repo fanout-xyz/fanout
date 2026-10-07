@@ -4,21 +4,32 @@ Three Solidity contracts on Monad testnet that move the money for Fanout: **Trea
 
 A fourth, standalone contract, **SettleToUsdc**, lets a payee take their dollars as USDC instead of AUSD, changed instantly and without fees through Agora's AUSD/USDC stable-swap pair. It doesn't touch the three payout contracts.
 
-**Status:** 54 tests passing. The web app uses the **`monad-ausd`** deployment. **v3** (gasless deposits and payouts, a claim window per payout, refunding a whole payout at once) is ready to deploy as **`monad-v3`**; see [v3](#v3-monad-v3).
+**Status:** 54 tests passing. The web app uses the **`monad-v3`** deployment (gasless deposits and payouts, a claim window per payout, refunding a whole payout at once); see [v3](#v3-monad-v3).
 
 ## Deployed addresses (Monad testnet)
 
 | Deployment | Payout token | Claim verifier (email check) | Used by the web app |
 | --- | --- | --- | --- |
-| `monad-v3` | Real Agora **AUSD** | ✅ Yes | Not deployed yet. The app switches to it once its ABIs are exported ([steps](#deploying-v3)) |
-| **`monad-ausd`** | Real Agora **AUSD** | ✅ Yes | ✅ **Yes, now** |
+| **`monad-v3`** | Real Agora **AUSD** | ✅ Yes | ✅ **Yes, now** |
+| `monad-ausd` | Real Agora **AUSD** | ✅ Yes | No, superseded by `monad-v3` |
 | `monad-v2` | Our **tAUSD** (anyone can mint) | ✅ Yes | No, superseded by `monad-ausd` |
 | `monad-test-ausd` | tAUSD | No: the link alone can claim | No |
 | `chain-10143` | Real AUSD | No | No |
 
 **Getting test AUSD.** Agora's faucet on Monad testnet was refilled after 2026-09-30 (it held 1 billion AUSD on 2026-10-01). Call `requestFunds(<recipient>)` on [`0xd236c18D274E54FAccC3dd9DDA4b27965a73ee6C`](https://testnet.monadscan.com/address/0xd236c18D274E54FAccC3dd9DDA4b27965a73ee6C): 10,000 AUSD per call, once a minute per caller (`MaxFrequencyExceeded` otherwise), up to 100,000 per wallet. The argument is the recipient; anyone can pay the gas.
 
-### Active: `monad-ausd` (real AUSD + claim verifier), deployed 2026-10-01
+### Active: `monad-v3`, deployed 2026-10-07
+
+| Contract | Address |
+| --- | --- |
+| AUSD (Agora) | [`0xa9012a055bd4e0eDfF8Ce09f960291C09D5322dC`](https://testnet.monadscan.com/address/0xa9012a055bd4e0eDfF8Ce09f960291C09D5322dC) |
+| Treasury | [`0xecC2616C45a55AEA2d33374E4B99D64d0900255c`](https://testnet.monadscan.com/address/0xecC2616C45a55AEA2d33374E4B99D64d0900255c) |
+| ClaimEscrow | [`0x15DaAD3E6200051AE2F956ba32cD8033e82d40B6`](https://testnet.monadscan.com/address/0x15DaAD3E6200051AE2F956ba32cD8033e82d40B6) |
+| BatchPayout | [`0x01aD7B7A7Ab17ffE4fDFE4644828167702338386`](https://testnet.monadscan.com/address/0x01aD7B7A7Ab17ffE4fDFE4644828167702338386) |
+
+Deployed at block 68874807 with verifier `0x5A115F0E14232D658763b8683B6c0da9fBBe5549` and `firstBatchId` 1001. Checked on chain after deploy: Treasury points at this BatchPayout and ClaimEscrow, ClaimEscrow at this BatchPayout and verifier, both use Agora AUSD, `nextBatchId` is 1001, and the claim window bounds are 300 seconds to 7,776,000 seconds (90 days). Tx hashes in `ignition/deployments/monad-v3/journal.jsonl`.
+
+### Previous: `monad-ausd` (real AUSD + claim verifier), deployed 2026-10-01
 
 | Contract | Address |
 | --- | --- |
