@@ -68,13 +68,13 @@ Contract details: [smart-contract/README.md](smart-contract/README.md).
 
 ## Onchain proof
 
-Monad testnet, chain id `10143`. These are the contracts the live site uses (the `monad-ausd` deployment).
+Monad testnet, chain id `10143`. These are the contracts the live site uses (the `monad-v3` deployment).
 
 | Contract | Address |
 | --- | --- |
-| Treasury | [`0x245C9b855fd63395BccEC46f7Bac2671e18e79fE`](https://testnet.monadscan.com/address/0x245C9b855fd63395BccEC46f7Bac2671e18e79fE) |
-| BatchPayout | [`0xfc15b4f0811C6F88e8D572cFB01fCE5b166FE3dF`](https://testnet.monadscan.com/address/0xfc15b4f0811C6F88e8D572cFB01fCE5b166FE3dF) |
-| ClaimEscrow | [`0xf1de07BFfAF3D3D4279399D63049F0C01b8aFD11`](https://testnet.monadscan.com/address/0xf1de07BFfAF3D3D4279399D63049F0C01b8aFD11) |
+| Treasury | [`0xecC2616C45a55AEA2d33374E4B99D64d0900255c`](https://testnet.monadscan.com/address/0xecC2616C45a55AEA2d33374E4B99D64d0900255c) |
+| BatchPayout | [`0x01aD7B7A7Ab17ffE4fDFE4644828167702338386`](https://testnet.monadscan.com/address/0x01aD7B7A7Ab17ffE4fDFE4644828167702338386) |
+| ClaimEscrow | [`0x15DaAD3E6200051AE2F956ba32cD8033e82d40B6`](https://testnet.monadscan.com/address/0x15DaAD3E6200051AE2F956ba32cD8033e82d40B6) |
 | SettleToUsdc | [`0xA1ac3cBe75697e4Ad7C5fF393EbC3AE9fa67DeC2`](https://testnet.monadscan.com/address/0xA1ac3cBe75697e4Ad7C5fF393EbC3AE9fa67DeC2) |
 | AUSD (Agora) | [`0xa9012a055bd4e0eDfF8Ce09f960291C09D5322dC`](https://testnet.monadscan.com/address/0xa9012a055bd4e0eDfF8Ce09f960291C09D5322dC) |
 | Agora AUSD/USDC pair | [`0x1Aa8958Aa34cEC8096EF4381cb335effe977b0ae`](https://testnet.monadscan.com/address/0x1Aa8958Aa34cEC8096EF4381cb335effe977b0ae) |
@@ -83,13 +83,13 @@ Example transactions:
 
 | What | Transaction |
 | --- | --- |
-| Deploy Treasury | [`0xa25f…9b3a`](https://testnet.monadscan.com/tx/0xa25f71cbd05e14b7a5574660ca64412f6bef79e49f3f1ea21d20c939a0189b3a) |
-| Deploy ClaimEscrow | [`0x14cc…f8f8`](https://testnet.monadscan.com/tx/0x14ccfc892920739f2b388a9c0859f452d25d7240ac0de3ad00ea639e894cf8f8) |
-| Deploy BatchPayout | [`0x7fd8…9488`](https://testnet.monadscan.com/tx/0x7fd86001646dfdd4a0c826bb46363a8dd19601fb92bd1931bedbcc5694de9488) |
+| Deploy Treasury | [`0x0664…40b1`](https://testnet.monadscan.com/tx/0x066467fd4fde22d0b9e690a10c141e82154abac0884a70d18ae832ce907640b1) |
+| Deploy ClaimEscrow | [`0x1892…5c20`](https://testnet.monadscan.com/tx/0x18926816e4efe415db20738af81d3f2af618264a5e62ab4a3235094fef7e5c20) |
+| Deploy BatchPayout | [`0x9ee3…357b`](https://testnet.monadscan.com/tx/0x9ee385eb0525dda043a2a00f3d621698ac85249df785667f7b8c45e769d0357b) |
 | Deploy SettleToUsdc | [`0xd77a…a86e`](https://testnet.monadscan.com/tx/0xd77a76a3f88950abbb81a181fd988a315d5772529f367128e022f4afd0eaa86e) |
-| Platform deposits 1,000 AUSD | [`0xb6a4…890e`](https://testnet.monadscan.com/tx/0xb6a49bc37edf81adf2ed58ebbfa149cd21e858f9a363aa7d6b454261da8e890e) |
-| `createBatch`: 5 people, $137, one transaction | [`0x74cb…9e16`](https://testnet.monadscan.com/tx/0x74cb82ae80663371f9fe443c717fc990aee35dc38972e31835de2a4a173a9e16) |
-| A payee's claim from that batch, sent by the relayer | [`0xd11d…be82`](https://testnet.monadscan.com/tx/0xd11d5eb6acd79badc31f1fcb7382123b80b9964fd94bff92214fb167ec20be82) |
+| Platform deposits 1,000 AUSD (previous `monad-ausd` contracts) | [`0xb6a4…890e`](https://testnet.monadscan.com/tx/0xb6a49bc37edf81adf2ed58ebbfa149cd21e858f9a363aa7d6b454261da8e890e) |
+| `createBatch`: 5 people, $137, one transaction (`monad-ausd`) | [`0x74cb…9e16`](https://testnet.monadscan.com/tx/0x74cb82ae80663371f9fe443c717fc990aee35dc38972e31835de2a4a173a9e16) |
+| A payee's claim from that batch, sent by the relayer (`monad-ausd`) | [`0xd11d…be82`](https://testnet.monadscan.com/tx/0xd11d5eb6acd79badc31f1fcb7382123b80b9964fd94bff92214fb167ec20be82) |
 
 Deploy records, including every transaction: [`smart-contract/ignition/deployments/`](smart-contract/ignition/deployments/).
 
