@@ -25,7 +25,7 @@ async function deploy() {
   const treasury = await viem.deployContract("Treasury", [ausd.address]);
   const verifierKey = generatePrivateKey();
   const escrow = await viem.deployContract("ClaimEscrow", [ausd.address, treasury.address, privateKeyToAccount(verifierKey).address]);
-  const batchPayout = await viem.deployContract("BatchPayout", [treasury.address, escrow.address, TTL]);
+  const batchPayout = await viem.deployContract("BatchPayout", [treasury.address, escrow.address, 0n]);
   await treasury.write.wire([batchPayout.address, escrow.address]);
   await escrow.write.wire([batchPayout.address]);
 

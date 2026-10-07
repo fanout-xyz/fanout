@@ -1,5 +1,6 @@
 // Copies the deployed ABIs and addresses (including the payout token) into the web app.
 // Usage: pnpm export-abis [deployment-id]
+//   monad-v3:            real Agora AUSD, per-payout claim windows, gasless deposits and payouts
 //   monad-ausd (default): real Agora AUSD, with the claim verifier (email check)
 //   monad-v2:            tAUSD, with the claim verifier
 //   monad-test-ausd:     tAUSD, before the verifier (claims need only the link)
