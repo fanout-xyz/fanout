@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AccountSetup } from "@/components/payee/account-setup";
 import { InstallPrompt } from "@/components/payee/install-prompt";
+import { PushPrompt } from "@/components/payee/push-prompt";
 import { LocalAmount } from "@/components/payee/local-amount";
 import { UsdcOffer } from "@/components/payee/usdc-offer";
 import { useAuth } from "@/lib/auth/provider";
@@ -174,6 +175,7 @@ function ClaimForKey({ privateKey }: { privateKey: Hex | null | undefined }) {
               <UsdcOffer amount={claim.amount} source="claim" className="mb-4" />
               <BalanceLink />
               <InstallPrompt className="mt-4" />
+              <PushPrompt source="claim" className="mt-4" />
             </>
           }
           localAmount={<LocalAmount cents={toCents(claim.amount)} />}
