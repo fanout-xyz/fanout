@@ -9,7 +9,8 @@ import { Spinner, TxProgress, type TxStage } from "@/components/tx-progress";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { parsePayoutCsv, withoutErrorRows, type PayoutSheet } from "@/lib/csv";
-import { config } from "@/lib/config";
+import { CLAIM_WINDOW_OPTIONS, DEFAULT_CLAIM_WINDOW_SECONDS } from "@/lib/claim-window";
+import { claimWindowEnabled, config } from "@/lib/config";
 import { useCreatePayout, useTreasuryBalance } from "@/lib/fanout/queries";
 import { formatUsd } from "@/lib/money";
 import { CsvDropzone } from "./csv-dropzone";
@@ -26,6 +27,7 @@ export function NewPayoutFlow() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [screened, setScreened] = useState(false);
   const [stage, setStage] = useState<TxStage | null>(null);
+  const [claimWindow, setClaimWindow] = useState<number>(DEFAULT_CLAIM_WINDOW_SECONDS);
   // Balance when the payout was approved. After it lands the query refetches the lower balance,
   // which would otherwise have the total subtracted a second time in "Balance after".
   const [balanceAtApprove, setBalanceAtApprove] = useState<bigint | undefined>(undefined);
@@ -67,7 +69,7 @@ export function NewPayoutFlow() {
     setBalanceAtApprove(balance.data);
     setStage("preparing");
     createPayout.mutate(
-      sheet.rows.map((r) => ({ email: r.email, amount: r.amount!, note: r.note })),
+      { rows: sheet.rows.map((r) => ({ email: r.email, amount: r.amount!, note: r.note })), claimWindowSeconds: claimWindow },
       {
         onSuccess: ({ batchId, emailed }) => {
           setStage("done");
@@ -77,6 +79,7 @@ export function NewPayoutFlow() {
             total_usd: Number(sheet.total) / 1e6,
             demo_mode: config.useMock,
             emailed_count: emailedCount,
+            claim_window_seconds: claimWindow,
             // Person properties for retention: split platforms from payees, and know when each started.
             $set: { is_platform: true },
             $set_once: { first_payout_at: new Date().toISOString() },
@@ -196,6 +199,8 @@ export function NewPayoutFlow() {
               </div>
             )}
 
+            {valid && claimWindowEnabled() && <ClaimWindowPicker value={claimWindow} onChange={setClaimWindow} disabled={busy} />}
+
             {valid && <ScreeningCheck key={loaded.fileName + people} count={people} onPassed={onPassed} />}
 
             {createPayout.isError && (
@@ -218,7 +223,7 @@ export function NewPayoutFlow() {
             )}
             {!busy && valid && (
               <p className="text-xs text-muted">
-                Each person gets a claim link. Unclaimed money returns to your balance.
+                Each person gets a claim link. Unclaimed money returns to your balance after {claimWindowLabel(claimWindow)}.
                 {config.useMock ? " Demo mode: nothing real is sent." : ""}
               </p>
             )}
@@ -226,5 +231,42 @@ export function NewPayoutFlow() {
         </div>
       )}
     </div>
+  );
+}
+
+/** "30 days", "10 minutes": the option's label without "(default)". */
+function claimWindowLabel(seconds: number): string {
+  const option = CLAIM_WINDOW_OPTIONS.find((o) => o.seconds === seconds);
+  return option ? option.label.replace(" (default)", "") : `${Math.round(seconds / 60)} minutes`;
+}
+
+/** Advanced: how long claim links work before unclaimed money returns to the balance. */
+function ClaimWindowPicker({ value, onChange, disabled }: { value: number; onChange: (seconds: number) => void; disabled: boolean }) {
+  const custom = value !== DEFAULT_CLAIM_WINDOW_SECONDS;
+  return (
+    <details className="rounded-md border border-line px-3 py-2 text-sm" open={custom || undefined}>
+      <summary className="cursor-pointer font-semibold">
+        Advanced{custom ? <span className="font-normal text-muted"> · returns after {claimWindowLabel(value)}</span> : null}
+      </summary>
+      <div className="mt-3 flex flex-col gap-2">
+        <label htmlFor="claim-window" className="text-sm text-muted">
+          Unclaimed money returns after
+        </label>
+        <select
+          id="claim-window"
+          value={value}
+          disabled={disabled}
+          onChange={(e) => onChange(Number(e.target.value))}
+          className="h-11 w-full rounded-sm border border-line bg-card-raised px-3 text-[15px] outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+        >
+          {CLAIM_WINDOW_OPTIONS.map((o) => (
+            <option key={o.seconds} value={o.seconds}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+        <p className="text-xs text-muted">After that, you can return what wasn&apos;t claimed to your balance, and those links stop working.</p>
+      </div>
+    </details>
   );
 }

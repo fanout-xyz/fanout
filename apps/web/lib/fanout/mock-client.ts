@@ -41,7 +41,9 @@ export function createMockClient(ctx: FanoutClientContext): FanoutClient {
   return {
     getTreasuryBalance: (platform) => rpc("getTreasuryBalance", a, [platform]),
     deposit: (amount) => rpc("deposit", a, [amount]),
-    createBatchPayout: (rows) => rpc("createBatchPayout", a, [rows]),
+    createBatchPayout: (rows, options) => rpc("createBatchPayout", a, [rows, options ?? {}]),
+    payFromAccount: (rows, options) => rpc("payFromAccount", a, [rows, options ?? {}]),
+    refundExpired: (batchId) => rpc("refundExpired", a, [batchId]),
     getBatch: (batchId) => rpc("getBatch", a, [batchId]),
     getClaim: (claimSigner) => rpc("getClaim", a, [claimSigner]),
     claim: (claimSigner, recipient, signature) => rpc("claim", a, [claimSigner, recipient, signature]),

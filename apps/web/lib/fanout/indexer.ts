@@ -27,18 +27,24 @@ async function query<T>(gql: string, variables: Record<string, unknown>): Promis
   return body.data;
 }
 
-type BatchRow = { id: string; total: string; rowCount: number; claimedCount: number; createdAt: number; txHash: Hex };
+type BatchRow = { id: string; total: string; rowCount: number; claimedCount: number; createdAt: number; txHash: Hex; expiresAt?: number | null };
 
-/** A platform's payouts, newest first, plus the highest batch id the indexer has seen from anyone. */
+/**
+ * A platform's payouts, newest first, plus the highest batch id the indexer has seen from anyone.
+ * With the v3 contracts the indexer also holds the older deployment's payouts, so this asks only
+ * for the configured BatchPayout's (and their claim expiry, which the v3 indexer records).
+ */
 export async function indexedBatches(platform: Address): Promise<{ batches: BatchSummary[]; latestId: number }> {
+  const v3 = config.payoutsV3;
+  const where = v3 ? "platform_id: { _eq: $platform }, batchPayout: { _eq: $batchPayout }" : "platform_id: { _eq: $platform }";
   const data = await query<{ Batch: BatchRow[]; latest: { id: string }[] }>(
-    `query ($platform: String!) {
-      Batch(where: { platform_id: { _eq: $platform } }, order_by: { createdAt: desc }) {
-        id total rowCount claimedCount createdAt txHash
+    `query ($platform: String!${v3 ? ", $batchPayout: String!" : ""}) {
+      Batch(where: { ${where} }, order_by: { createdAt: desc }) {
+        id total rowCount claimedCount createdAt txHash${v3 ? " expiresAt" : ""}
       }
-      latest: Batch(order_by: { createdAt: desc }, limit: 1) { id }
+      latest: Batch(${v3 ? "where: { batchPayout: { _eq: $batchPayout } }, " : ""}order_by: { createdAt: desc }, limit: 1) { id }
     }`,
-    { platform: getAddress(platform) },
+    { platform: getAddress(platform), ...(v3 && config.contracts.batchPayout ? { batchPayout: getAddress(config.contracts.batchPayout) } : {}) },
   );
   return {
     batches: data.Batch.map((b) => ({
@@ -48,6 +54,7 @@ export async function indexedBatches(platform: Address): Promise<{ batches: Batc
       claimedCount: b.claimedCount,
       createdAt: b.createdAt * 1000,
       txHash: b.txHash,
+      ...(b.expiresAt ? { expiresAt: b.expiresAt * 1000 } : {}),
     })),
     latestId: Number(data.latest[0]?.id ?? 0),
   };

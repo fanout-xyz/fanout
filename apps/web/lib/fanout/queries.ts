@@ -116,7 +116,7 @@ export function useCreatePayout() {
   const address = auth.user?.address;
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (rows: NewPayoutRow[]) => {
+    mutationFn: async ({ rows, claimWindowSeconds }: { rows: NewPayoutRow[]; claimWindowSeconds?: number }) => {
       const keyed = rows.map((row) => ({ row, key: generateClaimKey() }));
       const saved = saveClaims(
         keyed.map(({ row, key }) => ({ claimSigner: key.claimSigner, privateKey: key.privateKey, email: row.email, note: row.note })),
@@ -126,6 +126,7 @@ export function useCreatePayout() {
       }
       const created = await client.createBatchPayout(
         keyed.map(({ row, key }) => ({ claimSigner: key.claimSigner, amount: row.amount, emailHash: hashEmail(row.email) })),
+        { claimWindowSeconds },
       );
       // The money is out; emailing is a separate step whose failure the caller reports, not throws.
       const emailed = await emailClaimLinks(
@@ -184,6 +185,24 @@ export function useMockSimulateClaims(batchId: string) {
     mutationFn: (count: number) => mockSimulateClaims(address, batchId, count),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: fanoutKeys.batch(batchId) });
+      void queryClient.invalidateQueries({ queryKey: fanoutKeys.batches(address) });
+    },
+  });
+}
+
+/**
+ * Returns a payout's unclaimed money to the balance once its claim window has passed. The platform's
+ * own account sends it and pays the fee (FanoutClient.refundExpired).
+ */
+export function useRefundExpired(batchId: string) {
+  const client = useFanoutClient();
+  const address = useAuth().user?.address;
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => client.refundExpired(batchId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: fanoutKeys.batch(batchId) });
+      void queryClient.invalidateQueries({ queryKey: fanoutKeys.treasury(address) });
       void queryClient.invalidateQueries({ queryKey: fanoutKeys.batches(address) });
     },
   });
@@ -293,32 +312,17 @@ export function useReceiveAsUsdc() {
   });
 }
 
-/** Asks the relayer for enough MON to cover paying by email (relayer.ts topUpForEmailPayment). */
-async function prepareEmailPaymentFees(address: `0x${string}`, amount: bigint, accessToken: string | null) {
-  let res: Response;
-  try {
-    res = await fetch("/api/relay/fees", {
-      method: "POST",
-      headers: { "content-type": "application/json", ...(accessToken ? { authorization: `Bearer ${accessToken}` } : {}) },
-      body: JSON.stringify({ address, amount: amount.toString() }),
-    });
-  } catch {
-    throw new Error("Can't reach the server. Check your connection and try again.");
-  }
-  if (!res.ok) {
-    const body = (await res.json().catch(() => ({}))) as { error?: string };
-    throw new Error(body.error ?? "Couldn't prepare the payment. Try again in a moment.");
-  }
-}
-
 /**
  * Pays someone by email, the way platforms pay out: the money goes into the payout contracts
  * locked to that email, and they get a claim link. Only someone signed in with that email can
- * claim it; after the claim window, unclaimed money can be taken back (ClaimEscrow.refund).
+ * claim it; after the claim window, unclaimed money returns to the sender's payout balance
+ * (ClaimEscrow.refund).
  *
- * From a passkey account this is one passkey prompt for three transactions (approve, deposit,
- * create) plus a signature proving the payout is ours, so the server will email the link.
- * The claim key is saved in this browser first, so the link can be copied if the email fails.
+ * FanoutClient.payFromAccount does the paying. With the v3 contracts the account only signs and our
+ * relayer submits one transaction, so it needs no MON; before them, the account sends approve,
+ * deposit and create itself. From a passkey account it is one passkey prompt for all of it, plus a
+ * signature proving the payout is ours, so the server will email the link. The claim key is saved
+ * in this browser first, so the link can be copied if the email fails.
  */
 export function useSendToEmail() {
   const auth = useAuth();
@@ -337,21 +341,18 @@ export function useSendToEmail() {
 
       let proof: ClaimEmailProof | undefined;
       if (payee.kind === "passkey") {
-        if (!config.useMock) await prepareEmailPaymentFees(address, amount, accessToken);
         const unlocked = await payee.unlock();
         try {
           const walletClient = createWalletClient({ account: unlocked.account, chain: activeChain, transport: http() });
-          const client = createFanoutClient({ account: unlocked.address, walletClient });
-          await client.deposit(amount);
-          await client.createBatchPayout(rows);
+          const client = createFanoutClient({ account: unlocked.address, walletClient, getAccessToken: auth.getAccessToken });
+          await client.payFromAccount(rows);
           const signature = await unlocked.account.signMessage({ message: claimEmailProofMessage(unlocked.address, [key.claimSigner]) });
           proof = { address: unlocked.address, signature };
         } finally {
           unlocked.end();
         }
       } else {
-        await signInClient.deposit(amount);
-        await signInClient.createBatchPayout(rows);
+        await signInClient.payFromAccount(rows);
       }
 
       // The money is out; a failed email is reported, not thrown, so the link can still be shared.

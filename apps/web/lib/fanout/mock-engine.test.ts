@@ -183,6 +183,82 @@ describe("mock engine", () => {
     });
   });
 
+  describe("claim windows", () => {
+    afterEach(() => vi.useRealTimers());
+
+    it("defaults to 30 days and takes 5 minutes to 90 days, like the contract", () => {
+      vi.useFakeTimers({ now: 1_790_000_000_000 });
+      engine.deposit(s, platform, 10_000_000n);
+      const row = () => [{ claimSigner: generateClaimKey().claimSigner, amount: 1_000_000n }];
+      const def = engine.createBatchPayout(s, platform, row());
+      expect(engine.getBatch(s, def.batchId).expiresAt).toBe(1_790_000_000_000 + 30 * 86_400_000);
+      const short = engine.createBatchPayout(s, platform, row(), { claimWindowSeconds: 600 });
+      expect(engine.getBatch(s, short.batchId).expiresAt).toBe(1_790_000_000_000 + 600_000);
+      expect(engine.listBatches(s, platform).map((b) => b.expiresAt)).toContain(1_790_000_000_000 + 600_000);
+      expect(() => engine.createBatchPayout(s, platform, row(), { claimWindowSeconds: 299 })).toThrow(/5 minutes/);
+      expect(() => engine.createBatchPayout(s, platform, row(), { claimWindowSeconds: 90 * 86_400 + 1 })).toThrow(/90 days/);
+      expect(engine.getTreasuryBalance(s, platform)).toBe(8_000_000n);
+    });
+
+    it("returns only expired, unclaimed rows, after the window", async () => {
+      vi.useFakeTimers({ now: 1_790_000_000_000 });
+      engine.deposit(s, platform, 10_000_000n);
+      const a = generateClaimKey();
+      const b = generateClaimKey();
+      const { batchId } = engine.createBatchPayout(
+        s,
+        platform,
+        [
+          { claimSigner: a.claimSigner, amount: 1_000_000n },
+          { claimSigner: b.claimSigner, amount: 2_000_000n },
+        ],
+        { claimWindowSeconds: 600 },
+      );
+      expect(() => engine.refundExpired(s, friend, batchId)).toThrow(/still work/);
+      await engine.claim(s, a.claimSigner, payee, await sign(a.privateKey, payee));
+      vi.setSystemTime(1_790_000_600_000);
+      // Anyone can trigger it; the money goes to the platform that paid.
+      expect(engine.refundExpired(s, friend, batchId).refunded).toBe(1);
+      expect(engine.getClaim(s, b.claimSigner).status).toBe("refunded");
+      expect(engine.getTreasuryBalance(s, platform)).toBe(9_000_000n);
+      expect(() => engine.refundExpired(s, platform, batchId)).toThrow(/Nothing is waiting/);
+    });
+
+    it("treats batches saved before claim windows as 30 days", () => {
+      engine.deposit(s, platform, 1_000_000n);
+      const { batchId } = engine.createBatchPayout(s, platform, [{ claimSigner: generateClaimKey().claimSigner, amount: 1_000_000n }]);
+      delete s.batches[batchId].expiresAt;
+      expect(engine.getBatch(s, batchId).expiresAt).toBe(s.batches[batchId].createdAt + 30 * 86_400_000);
+    });
+  });
+
+  describe("payFromAccount (paying by email)", () => {
+    it("takes the account's own dollars, not the payout balance, and pays no fee", async () => {
+      engine.deposit(s, platform, 5_000_000n);
+      const a = generateClaimKey();
+      const { batchId } = engine.createBatchPayout(s, platform, [{ claimSigner: a.claimSigner, amount: 5_000_000n }]);
+      await engine.claim(s, a.claimSigner, payee, await sign(a.privateKey, payee));
+
+      const key = generateClaimKey();
+      const paid = engine.payFromAccount(s, payee, [{ claimSigner: key.claimSigner, amount: 2_000_000n }], { claimWindowSeconds: 600 });
+      expect(paid.gasless).toBe(true);
+      expect(paid.batchId).not.toBe(batchId);
+      expect(engine.getPayeeBalance(s, payee)).toBe(3_000_000n);
+      expect(engine.getTreasuryBalance(s, payee)).toBe(0n);
+      expect(engine.getClaim(s, key.claimSigner)).toMatchObject({ amount: 2_000_000n, platform: payee, status: "sent" });
+    });
+
+    it("is all or nothing", () => {
+      s.balances[payee] = 1_000_000n;
+      const row = [{ claimSigner: generateClaimKey().claimSigner, amount: 2_000_000n }];
+      expect(() => engine.payFromAccount(s, payee, row)).toThrow(/enough/);
+      s.balances[payee] = 5_000_000n;
+      expect(() => engine.payFromAccount(s, payee, row, { claimWindowSeconds: 1 })).toThrow(/5 minutes/);
+      expect(engine.getPayeeBalance(s, payee)).toBe(5_000_000n);
+      expect(engine.getTreasuryBalance(s, payee)).toBe(0n);
+    });
+  });
+
   it("round-trips state with bigints through the wire format", () => {
     engine.deposit(s, platform, 123n);
     expect(fromWire<MockState>(toWire(s)).treasury[platform]).toBe(123n);

@@ -12,6 +12,14 @@ describe("claimEmail", () => {
     expect(text).toMatch(/Claim it by \w+ \d+, \d{4}/);
   });
 
+  it("adds the time when the claim window is short", () => {
+    const now = 1_790_000_000_000;
+    const soon = claimEmail({ platformName: "Acme", amount: 1n, link, expiresAt: now / 1000 + 600 }, now).text;
+    expect(soon).toContain("Claim it by September 21, 2026, 2:23 PM UTC.");
+    const later = claimEmail({ platformName: "Acme", amount: 1n, link, expiresAt: now / 1000 + 30 * 86_400 }, now).text;
+    expect(later).toContain("Claim it by October 21, 2026.");
+  });
+
   it("uses no crypto words (the wallet.fanout.tech address aside)", () => {
     const { subject, text } = claimEmail({
       platformName: "Acme", amount: 1n, link, balanceUrl: "https://wallet.fanout.tech", note: "Weekly", expiresAt: 1_790_000_000,
