@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LocalAmount } from "@/components/payee/local-amount";
 import { InstallPrompt } from "@/components/payee/install-prompt";
+import { PaidNotice, PushPrompt, PushToggle } from "@/components/payee/push-prompt";
 import { UsdcOffer } from "@/components/payee/usdc-offer";
 import { config } from "@/lib/config";
 import { usePayeeBalance, usePayeeUsdcBalance } from "@/lib/fanout/queries";
@@ -77,6 +78,7 @@ function Wallet({ request, onRequestDone }: { request?: PaymentRequest; onReques
 
   return (
     <div className="flex flex-col gap-7 px-5 pt-4 pb-10">
+      <PaidNotice className="-mb-3" />
       <section
         aria-labelledby="balance-label"
         className="relative isolate overflow-hidden rounded-xl border border-band-dark-border bg-band-dark px-6 pt-6 pb-5 text-cream shadow-[var(--shadow-float)]"
@@ -137,7 +139,11 @@ function Wallet({ request, onRequestDone }: { request?: PaymentRequest; onReques
 
       <InstallPrompt />
 
+      <PushPrompt source="app" />
+
       <HistoryList />
+
+      <PushToggle />
 
       <p className="text-center text-sm text-muted">Cash-out to local banks is on the roadmap.</p>
       <p className="-mt-4 text-center text-sm text-muted">

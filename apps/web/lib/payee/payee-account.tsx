@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import type { Address } from "viem";
 import { useAuth } from "@/lib/auth/provider";
 import { normalizeEmail } from "@/lib/email-hash";
+import { forgetPushOnThisDevice } from "@/lib/push/use-push";
 import { markUnlocked } from "./app-lock";
 import {
   createPasskeyAccount,
@@ -126,6 +127,8 @@ export function PayeeAccountProvider({ children }: { children: ReactNode }) {
       },
       signOut: async () => {
         remember(null);
+        // Signed out, this device stops getting "You've been paid" for this account.
+        await forgetPushOnThisDevice();
         await logout();
         bump();
       },
