@@ -32,7 +32,7 @@ Payees can turn on a notification for when a platform pays them: from a prompt i
 The feature is off (no prompt, no switch, no sends) until it's configured:
 
 1. Print a key pair with `pnpm --filter web vapid-keys` and set `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` and `VAPID_SUBJECT` (a `mailto:` address) in the Vercel project (and `.env.local` for local work). Keep the private key secret and keep the same pair afterwards: a new pair means every payee has to turn notifications on again.
-2. In Vercel, add the **Upstash Redis** integration from the Marketplace (Storage > Create Database > Upstash for Redis) and connect it to this project. It sets `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`. In the local demo (`NEXT_PUBLIC_USE_MOCK=true`) subscriptions are kept in memory instead, so only the VAPID values are needed.
+2. In Vercel, add the **Upstash Redis** integration from the Marketplace (Storage > Create Database > Upstash for Redis) and connect it to this project. It sets `KV_REST_API_URL` and `KV_REST_API_TOKEN`; `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` work too. In the local demo (`NEXT_PUBLIC_USE_MOCK=true`) subscriptions are kept in memory instead, so only the VAPID values are needed.
 3. Redeploy (the public key is baked in at build time).
 
 Notifications need HTTPS (localhost is fine for desktop browsers; a phone needs the tunnel). The service worker is `public/sw.js`.

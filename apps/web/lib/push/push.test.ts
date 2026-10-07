@@ -27,6 +27,12 @@ describe("pushConfig", () => {
   it("uses Upstash when its env is set", () => {
     expect(pushConfig({ ...vapid, ...upstash }, false)?.storage).toEqual({ kind: "upstash", url: "https://redis.test", token: "tok" });
   });
+
+  it("also reads the KV_REST_API_* names Vercel's Upstash integration sets", () => {
+    const kv = { KV_REST_API_URL: "https://kv.test", KV_REST_API_TOKEN: "kvtok" };
+    expect(pushConfig({ ...vapid, ...kv }, false)?.storage).toEqual({ kind: "upstash", url: "https://kv.test", token: "kvtok" });
+    expect(pushConfig({ ...vapid, KV_REST_API_URL: "https://kv.test" }, false)).toBeNull();
+  });
 });
 
 describe("buildPaidPayload", () => {
