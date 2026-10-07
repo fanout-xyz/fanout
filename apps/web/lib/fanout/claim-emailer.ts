@@ -6,6 +6,7 @@ import { config } from "@/lib/config";
 import { MAX_ROWS } from "@/lib/csv";
 import { claimEmail } from "@/lib/email/claim-email";
 import { hashEmail } from "@/lib/email-hash";
+import { notifyPaid, type PaidPayee } from "@/lib/push/sender";
 import { claimEscrowAbi } from "./abis";
 import { claimEmailProofMessage, type ClaimEmailProof } from "./claim-email-proof";
 import { buildClaimLink, claimSignerFromKey } from "./claim-keys";
@@ -28,6 +29,9 @@ import { walletOrigin } from "@/lib/site-url";
  * Env (server only): RESEND_API_KEY; optional CLAIM_EMAIL_FROM (default "Fanout <pay@fanout.tech>",
  * the domain verified in Resend) and CLAIM_EMAIL_REPLY_TO. Links use walletOrigin() (lib/site-url.ts):
  * wallet.fanout.tech when live; locally localhost, which a phone can't open, so use a tunnel.
+ *
+ * Payees who turned on notifications also get a "You've been paid" push once their email is out
+ * (lib/push/sender.ts). It runs after the response and can't change or fail the emails.
  */
 
 export type ClaimEmailRequest = { key: Hex; email: string; note?: string };
@@ -99,7 +103,7 @@ async function readClaims(signers: Address[]): Promise<(ClaimRecord | null)[]> {
   });
 }
 
-type Outgoing = { claimSigner: Address; to: string; subject: string; text: string; html: string };
+type Outgoing = { claimSigner: Address; to: string; subject: string; text: string; html: string; paid: PaidPayee };
 
 /** Resend's batch endpoint takes up to 100 emails per call. */
 const RESEND_BATCH_SIZE = 100;
@@ -157,6 +161,11 @@ export async function sendClaimEmails(input: {
   reminder?: boolean;
   /** A payee's passkey account paying by email signs for its own payouts (claim-email-proof.ts). */
   proof?: ClaimEmailProof;
+  /**
+   * Runs the "You've been paid" pushes once the emails are out, without holding up the response
+   * (the route passes Next's `after`). They never change what this returns.
+   */
+  schedule?: (task: () => Promise<void>) => void;
 }): Promise<ClaimEmailResult> {
   if (!emailConfigured()) {
     console.error("[claim-email] RESEND_API_KEY is not set");
@@ -196,9 +205,19 @@ export async function sendClaimEmails(input: {
       expiresAt: claim.expiresAt,
       reminder: input.reminder,
     });
-    outgoing.push({ claimSigner, to: req.email.trim(), subject, text, html });
+    outgoing.push({ claimSigner, to: req.email.trim(), subject, text, html, paid: { emailHash: claim.emailHash, amount: claim.amount } });
   });
 
   const sent = outgoing.length ? await sendViaResend(outgoing) : { sent: [], failed: [] };
+
+  // Payees whose email went out also get a push on any device they turned notifications on for.
+  // Reminders don't: the payment isn't new.
+  if (!input.reminder && sent.sent.length) {
+    const emailed = new Set(sent.sent);
+    const paid = outgoing.filter((o) => emailed.has(o.claimSigner)).map((o) => o.paid);
+    const task = () => notifyPaid(paid, config.platformName).catch(() => {});
+    if (input.schedule) input.schedule(task);
+    else void task();
+  }
   return { sent: sent.sent, failed: [...failed, ...sent.failed] };
 }

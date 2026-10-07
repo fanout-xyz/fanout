@@ -140,4 +140,23 @@ describe("sendClaimEmails", () => {
     expect(() => parseRequests({ links: [] })).toThrow(EmailRefused);
     expect(() => parseRequests({ links: [{ key: "0x12", email: "a@b.co" }] })).toThrow(EmailRefused);
   });
+
+  it("hands the paid notifications off after the emails, without affecting them", async () => {
+    const key = pay("ana@example.com");
+    const schedule = vi.fn();
+    const res = await sendClaimEmails({ requests: [{ key: key.privateKey, email: "ana@example.com" }], accessToken: null, mockAccount: platform, schedule });
+    expect(res).toEqual({ sent: [key.claimSigner], failed: [] });
+    expect(schedule).toHaveBeenCalledTimes(1);
+    // Push isn't configured here: the task is a no-op and never throws.
+    await expect(schedule.mock.calls[0][0]()).resolves.toBeUndefined();
+  });
+
+  it("doesn't notify for reminders or for emails that didn't go out", async () => {
+    const key = pay("ana@example.com");
+    const schedule = vi.fn();
+    await sendClaimEmails({ requests: [{ key: key.privateKey, email: "ana@example.com" }], accessToken: null, mockAccount: platform, reminder: true, schedule });
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 500 })));
+    await sendClaimEmails({ requests: [{ key: key.privateKey, email: "ana@example.com" }], accessToken: null, mockAccount: platform, schedule });
+    expect(schedule).not.toHaveBeenCalled();
+  });
 });

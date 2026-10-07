@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { SessionExpired } from "@/lib/auth/privy-server";
 import { parseProof } from "@/lib/fanout/claim-email-proof";
 import { EmailRefused, parseRequests, sendClaimEmails } from "@/lib/fanout/claim-emailer";
@@ -32,6 +32,7 @@ export async function POST(request: Request) {
       mockAccount: body.account,
       reminder: body.reminder === true,
       proof: parseProof(body.proof),
+      schedule: after,
     });
     return NextResponse.json(result);
   } catch (err) {
