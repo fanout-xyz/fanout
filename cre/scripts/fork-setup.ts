@@ -13,12 +13,12 @@
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { encodeFunctionData, getAddress, keccak256, parseAbi, parseUnits, toHex, type Address, type Hex } from "viem";
+import { createWalletClient, encodeFunctionData, getAddress, http, keccak256, parseAbi, parseUnits, toHex, type Address, type Hex } from "viem";
 
 import { generateClaimKey } from "../../apps/web/lib/fanout/claim-keys.ts";
 import { buildSchedule } from "./sign-schedule.ts";
 import {
-  CRE_DIR, LOCAL_DIR, MOCK_FORWARDER, SERVICES_PORT, V3, artifact, devAccount, publicClient, testClient, walletFor,
+  CRE_DIR, LOCAL_DIR, MOCK_FORWARDER, RPC_URL, SERVICES_PORT, V3, artifact, devAccount, monadFork, publicClient, testClient, walletFor,
   type LocalState,
 } from "./local-chain.ts";
 
@@ -26,8 +26,11 @@ const deployer = walletFor(0);
 const platform = walletFor(1);
 const platformAccount = devAccount(1);
 
-const erc20 = parseAbi(["function approve(address,uint256) returns (bool)", "function balanceOf(address) view returns (uint256)"]);
-const faucet = parseAbi(["function requestFunds(address)"]);
+const erc20 = parseAbi([
+  "function approve(address,uint256) returns (bool)",
+  "function transfer(address,uint256) returns (bool)",
+  "function balanceOf(address) view returns (uint256)",
+]);
 const treasury = parseAbi(["function deposit(uint256)", "function balanceOf(address) view returns (uint256)"]);
 const batchPayout = parseAbi([
   "function createBatch(address[] claimSigners, uint256[] amounts, bytes32[] emailHashes, uint64 claimWindow) returns (uint256)",
@@ -70,7 +73,18 @@ async function main() {
   const keeper = getAddress((await publicClient.waitForTransactionReceipt({ hash: deployHash })).contractAddress!);
   console.log(`FanoutKeeper ${keeper} (forwarder ${MOCK_FORWARDER})`);
 
-  await send(platform, V3.faucet, encodeFunctionData({ abi: faucet, functionName: "requestFunds", args: [platformAccount.address] }));
+  // The faucet limits how often an address can request, and anvil's dev accounts are public, so
+  // requestFunds reverts (MaxFrequencyExceeded) whenever someone used one shortly before the fork
+  // block. On the fork, take the AUSD straight from the faucet's balance instead.
+  await testClient.impersonateAccount({ address: V3.faucet });
+  await testClient.setBalance({ address: V3.faucet, value: parseUnits("1", 18) });
+  const faucetWallet = createWalletClient({ chain: monadFork, account: V3.faucet, transport: http(RPC_URL) });
+  const fundHash = await faucetWallet.sendTransaction({
+    to: V3.ausd,
+    data: encodeFunctionData({ abi: erc20, functionName: "transfer", args: [platformAccount.address, parseUnits("1000", 6)] }),
+  });
+  if ((await publicClient.waitForTransactionReceipt({ hash: fundHash })).status !== "success") throw new Error(`AUSD transfer reverted: ${fundHash}`);
+  await testClient.stopImpersonatingAccount({ address: V3.faucet });
   const ausd = await publicClient.readContract({ address: V3.ausd, abi: erc20, functionName: "balanceOf", args: [platformAccount.address] });
   if (ausd < parseUnits("100", 6)) throw new Error(`Faucet gave ${ausd} AUSD units`);
   await send(platform, V3.ausd, encodeFunctionData({ abi: erc20, functionName: "approve", args: [V3.treasury, parseUnits("100", 6)] }));
