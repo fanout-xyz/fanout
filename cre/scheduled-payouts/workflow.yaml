@@ -1,0 +1,27 @@
+# Per-target workflow settings: https://docs.chain.link/cre/reference/project-configuration-ts
+local-simulation:
+  user-workflow:
+    workflow-name: "fanout-scheduled-payouts-local"
+  workflow-artifacts:
+    workflow-path: "./main.ts"
+    # Written by scripts/simulate.sh with the fork's keeper and the local schedule server.
+    config-path: "./config.local.json"
+    secrets-path: ""
+
+staging-settings:
+  user-workflow:
+    workflow-name: "fanout-scheduled-payouts-staging"
+  workflow-artifacts:
+    workflow-path: "./main.ts"
+    config-path: "./config.staging.json"
+    secrets-path: ""
+
+production-settings:
+  user-workflow:
+    workflow-name: "fanout-scheduled-payouts"
+    deployment-registry: "private"
+  workflow-artifacts:
+    workflow-path: "./main.ts"
+    config-path: "./config.production.json"
+    # Needed only when config.production.json sets scheduleTokenSecret.
+    secrets-path: "../secrets.yaml"

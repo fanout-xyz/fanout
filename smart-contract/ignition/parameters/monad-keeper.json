@@ -1,0 +1,7 @@
+{
+  "FanoutKeeper": {
+    "claimEscrow": "0x15DaAD3E6200051AE2F956ba32cD8033e82d40B6",
+    "batchPayout": "0x01aD7B7A7Ab17ffE4fDFE4644828167702338386",
+    "forwarder": "0xF8344CFd5c43616a4366C34E3EEE75af79a74482"
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "name": "fanout-cre",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Chainlink CRE workflows for Fanout and the scripts that sign schedules and run local simulations",
+  "scripts": {
+    "setup": "bun install && bun install --cwd refund-expired && bun install --cwd scheduled-payouts",
+    "test": "cd refund-expired && bun test && cd ../scheduled-payouts && bun test",
+    "typecheck": "cd refund-expired && bunx tsc --noEmit -p . && cd ../scheduled-payouts && bunx tsc --noEmit -p .",
+    "simulate": "bash scripts/simulate.sh",
+    "sign-schedule": "bun scripts/sign-schedule.ts"
+  },
+  "dependencies": {
+    "viem": "2.56.0"
+  },
+  "devDependencies": {
+    "@types/bun": "1.3.0"
+  }
+}

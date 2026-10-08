@@ -1,0 +1,20 @@
+# Chainlink CRE project settings shared by every workflow here.
+# https://docs.chain.link/cre/reference/project-configuration-ts
+# Targets:
+#   local-simulation     `cre workflow simulate` against an anvil fork of Monad testnet (scripts/simulate.sh)
+#   staging-settings     `cre workflow simulate` against Monad testnet itself
+#   production-settings  `cre workflow deploy`
+local-simulation:
+  rpcs:
+    - chain-name: monad-testnet
+      url: http://127.0.0.1:8545
+
+staging-settings:
+  rpcs:
+    - chain-name: monad-testnet
+      url: https://testnet-rpc.monad.xyz
+
+production-settings:
+  rpcs:
+    - chain-name: monad-testnet
+      url: https://testnet-rpc.monad.xyz
