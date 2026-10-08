@@ -1,0 +1,11 @@
+{
+  "schedule": "0 */5 * * * *",
+  "scheduleUrl": "https://example.com/fanout/schedule.json",
+  "chainName": "monad-testnet",
+  "keeper": "0x0000000000000000000000000000000000000000",
+  "batchPayout": "0x01aD7B7A7Ab17ffE4fDFE4644828167702338386",
+  "treasury": "0xecC2616C45a55AEA2d33374E4B99D64d0900255c",
+  "deadlineMarginSeconds": 300,
+  "maxPerRun": 1,
+  "gasLimit": "15000000"
+}

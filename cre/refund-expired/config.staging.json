@@ -1,0 +1,9 @@
+{
+  "schedule": "0 */10 * * * *",
+  "indexerUrl": "https://indexer.dev.hyperindex.xyz/e70db85/v1/graphql",
+  "batchPayout": "0x01aD7B7A7Ab17ffE4fDFE4644828167702338386",
+  "chainName": "monad-testnet",
+  "keeper": "0x0000000000000000000000000000000000000000",
+  "maxRefundsPerReport": 150,
+  "gasLimit": "8000000"
+}

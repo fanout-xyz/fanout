@@ -1,0 +1,26 @@
+# Per-target workflow settings: https://docs.chain.link/cre/reference/project-configuration-ts
+local-simulation:
+  user-workflow:
+    workflow-name: "fanout-refund-expired-local"
+  workflow-artifacts:
+    workflow-path: "./main.ts"
+    # Written by scripts/simulate.sh with the fork's keeper and the local indexer stand-in.
+    config-path: "./config.local.json"
+    secrets-path: ""
+
+staging-settings:
+  user-workflow:
+    workflow-name: "fanout-refund-expired-staging"
+  workflow-artifacts:
+    workflow-path: "./main.ts"
+    config-path: "./config.staging.json"
+    secrets-path: ""
+
+production-settings:
+  user-workflow:
+    workflow-name: "fanout-refund-expired"
+    deployment-registry: "private"
+  workflow-artifacts:
+    workflow-path: "./main.ts"
+    config-path: "./config.production.json"
+    secrets-path: ""
