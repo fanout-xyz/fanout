@@ -7,6 +7,9 @@
     "build": "pnpm --filter web build",
     "lint": "pnpm --filter web lint",
     "typecheck": "pnpm --filter web typecheck",
-    "tunnel": "ngrok http 3000"
+    "tunnel": "ngrok http 3000",
+    "cre:setup": "cd cre && bun run setup",
+    "cre:test": "cd cre && bun run test",
+    "cre:simulate": "bash cre/scripts/simulate.sh"
   }
 }
