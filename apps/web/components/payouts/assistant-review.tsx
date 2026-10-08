@@ -193,7 +193,7 @@ function Row({
         ) : (
           <span className="font-bold whitespace-nowrap tabular-nums">{row.amount ? dollars(row.amount) : row.amountRaw}</span>
         )}
-        {row.amountFrom !== "you" && row.amount && !/^\d+(\.\d{1,2})?$/.test(row.amountRaw) && (
+        {row.amountFrom !== "you" && row.amount && !/^\$?\d+(\.\d{1,2})?$/.test(row.amountRaw) && (
           <span className="mt-0.5 block text-xs whitespace-nowrap text-muted">from &ldquo;{row.amountRaw}&rdquo;</span>
         )}
         {row.note && <span className="mt-0.5 block truncate text-xs text-muted" title={row.note}>{row.note}</span>}

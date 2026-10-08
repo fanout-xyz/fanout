@@ -14,13 +14,16 @@ import { readTable, tableForAi, TableUnreadable, type Table } from "@/lib/assist
 import { parsePayoutCsv, withoutErrorRows, type PayoutSheet } from "@/lib/csv";
 import { CLAIM_WINDOW_OPTIONS, DEFAULT_CLAIM_WINDOW_SECONDS } from "@/lib/claim-window";
 import { claimWindowEnabled, config } from "@/lib/config";
+import { usePayoutHistory } from "@/lib/fanout/payout-history";
 import { useCreatePayout, useTreasuryBalance } from "@/lib/fanout/queries";
 import { formatUsd } from "@/lib/money";
+import { assessPayout, riskSignature } from "@/lib/payout-risk";
 import { AssistantReview } from "./assistant-review";
 import { AssistOffer, PasteTable } from "./assistant-intake";
 import { CsvDropzone } from "./csv-dropzone";
 import { PayoutPreview } from "./payout-preview";
 import { ScreeningCheck } from "./screening-check";
+import { UnusualPayoutWarning } from "./unusual-payout-warning";
 
 /** A plain CSV upload, or rows the spreadsheet assistant proposed (checked and edited before approval). */
 type Source =
@@ -48,9 +51,16 @@ export function NewPayoutFlow() {
   const [balanceAtApprove, setBalanceAtApprove] = useState<bigint | undefined>(undefined);
   const shownBalance = stage !== null && balanceAtApprove !== undefined ? balanceAtApprove : balance.data;
 
+  // Recent payouts and who they paid: for the unusual-payout checks and "more than this person usually gets".
+  const past = usePayoutHistory();
+  const usualCents = useMemo(() => {
+    const centsScale = 10n ** BigInt(Math.max(0, config.stablecoin.decimals - 2));
+    return new Map([...past.payees].map(([email, amount]) => [email, amount / centsScale]));
+  }, [past.payees]);
+
   const source = loaded?.source;
   const assistRows = source?.kind === "assist" ? source.rows : null;
-  const assistFlags = useMemo(() => (assistRows ? flagRows(assistRows) : null), [assistRows]);
+  const assistFlags = useMemo(() => (assistRows ? flagRows(assistRows, usualCents) : null), [assistRows, usualCents]);
   const assistSummary = useMemo(() => (assistRows && assistFlags ? summarize(assistRows, assistFlags) : null), [assistRows, assistFlags]);
   // The assistant's rows go through the same checks as an upload: as a CSV, through parsePayoutCsv.
   const sheet = useMemo(
@@ -64,7 +74,19 @@ export function NewPayoutFlow() {
   const shortfall = sheet && shownBalance !== undefined && sheet.total > shownBalance ? sheet.total - shownBalance : 0n;
   const valid = !!sheet && people > 0 && !hasRowErrors && !hasFileErrors && toCheck === 0;
   const busy = stage !== null;
-  const canApprove = valid && screened && shortfall === 0n && balance.isSuccess && !busy;
+
+  // Unusual-payout checks (lib/payout-risk.ts): a payout unlike this platform's usual ones needs an extra tick.
+  const risk = useMemo(
+    () =>
+      valid && sheet && past.ready
+        ? assessPayout({ rows: sheet.rows.map((r) => ({ email: r.email, amount: r.amount! })), history: past.history, payees: past.payees })
+        : [],
+    [valid, sheet, past.ready, past.history, past.payees],
+  );
+  const riskKey = riskSignature(risk);
+  const [riskConfirmed, setRiskConfirmed] = useState<string | null>(null);
+  const riskOk = risk.length === 0 || riskConfirmed === riskKey;
+  const canApprove = valid && screened && past.ready && riskOk && shortfall === 0n && balance.isSuccess && !busy;
 
   const onPassed = useCallback(() => setScreened(true), []);
 
@@ -159,6 +181,8 @@ export function NewPayoutFlow() {
             demo_mode: config.useMock,
             emailed_count: emailedCount,
             claim_window_seconds: claimWindow,
+            unusual_reasons: risk.map((r) => r.kind),
+            from_assistant: loaded?.source.kind === "assist",
             // Person properties for retention: split platforms from payees, and know when each started.
             $set: { is_platform: true },
             $set_once: { first_payout_at: new Date().toISOString() },
@@ -328,6 +352,16 @@ export function NewPayoutFlow() {
             {valid && claimWindowEnabled() && <ClaimWindowPicker value={claimWindow} onChange={setClaimWindow} disabled={busy} />}
 
             {valid && <ScreeningCheck key={loaded.fileName + people} count={people} onPassed={onPassed} />}
+
+            {valid && risk.length > 0 && (
+              <UnusualPayoutWarning
+                reasons={risk}
+                aiWording={ai.on}
+                confirmed={riskConfirmed === riskKey}
+                onConfirm={(yes) => setRiskConfirmed(yes ? riskKey : null)}
+                disabled={busy}
+              />
+            )}
 
             {createPayout.isError && (
               <p role="alert" className="text-sm text-danger">
