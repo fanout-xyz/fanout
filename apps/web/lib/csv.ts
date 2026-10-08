@@ -1,15 +1,19 @@
 import Papa from "papaparse";
 import { normalizeEmail } from "./email-hash";
+import { LANG_CODES, normalizeLanguage, type Lang } from "./i18n/languages";
 import { parseUsd } from "./money";
 
-/** Payout CSV: columns email, amount, note (note optional). Header names are case-insensitive. */
+/**
+ * Payout CSV: columns email, amount, note, language (note and language optional). Header names are
+ * case-insensitive. language picks the claim email's language ("es", "Spanish", ...; English if empty).
+ */
 
 /** Matches BatchPayout.MAX_ROWS onchain: a full batch must fit in one transaction. */
 export const MAX_ROWS = 150;
 export const MAX_NOTE_LENGTH = 140;
 export const MAX_FILE_BYTES = 1_000_000;
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
 export type PayoutRow = {
   /** 1-based line number in the file (header is line 1), for error messages. */
@@ -19,6 +23,8 @@ export type PayoutRow = {
   amount: bigint | null;
   amountRaw: string;
   note: string;
+  /** The claim email's language, when the file has a language column. */
+  language?: Lang;
   errors: string[];
 };
 
@@ -54,6 +60,8 @@ export function parsePayoutCsv(text: string, decimals?: number): PayoutSheet {
     const email = normalizeEmail(record.email ?? "");
     const amountRaw = (record.amount ?? "").trim();
     const note = (record.note ?? "").trim();
+    const languageRaw = (record.language ?? "").trim();
+    const language = languageRaw ? normalizeLanguage(languageRaw) : null;
     const errors: string[] = [];
 
     if (!email) errors.push("Email is missing.");
@@ -68,8 +76,9 @@ export function parsePayoutCsv(text: string, decimals?: number): PayoutSheet {
     else if (amount <= 0n) errors.push("Amount must be more than $0.00.");
 
     if (note.length > MAX_NOTE_LENGTH) errors.push(`Note is longer than ${MAX_NOTE_LENGTH} characters.`);
+    if (languageRaw && !language) errors.push(`Language "${languageRaw}" isn't available. Use one of ${LANG_CODES.join(", ")}, or leave it empty.`);
 
-    return { line, email, amount, amountRaw, note, errors };
+    return { line, email, amount, amountRaw, note, ...(language ? { language } : {}), errors };
   });
 
   // Papaparse reports malformed quotes / field counts per row.
