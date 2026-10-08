@@ -2,11 +2,15 @@ import { FinalCta } from "@/components/landing/final-cta";
 import { Hero } from "@/components/landing/hero/hero";
 import { HowItWorks } from "@/components/landing/how/how-it-works";
 import { MotionRoot } from "@/components/motion-root";
+import { ProofStrip } from "@/components/landing/proof-strip";
 import { PayeeSection } from "@/components/landing/payee/payee-section";
 import { RaceSection } from "@/components/landing/race/race-section";
 import { SiteFooter } from "@/components/landing/site-footer";
 import { SiteHeader } from "@/components/landing/site-header";
 import { SmoothScroll } from "@/components/landing/smooth-scroll";
+
+// The proof strip's live numbers are refreshed at most once a minute.
+export const revalidate = 60;
 
 export default function Landing() {
   return (
@@ -20,6 +24,7 @@ export default function Landing() {
             <div className="flex min-h-[calc(100svh-4.5rem)] flex-col lg:h-[calc(100svh-4.5rem)]">
               <Hero />
             </div>
+            <ProofStrip />
             <RaceSection />
             <HowItWorks />
             <PayeeSection />
