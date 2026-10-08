@@ -99,6 +99,7 @@ Deploy records, including every transaction: [`smart-contract/ignition/deploymen
 - **[Agora](https://agora.finance) AUSD and stable-swap**: AUSD is the payout dollar. Its AUSD/USDC pair changes dollars to USDC for payees who want it, and its ERC-3009 support makes gasless sends possible. [`SettleToUsdc.sol`](smart-contract/contracts/SettleToUsdc.sol), [`usdc-settle.ts`](apps/web/lib/fanout/usdc-settle.ts), [`erc3009.ts`](apps/web/lib/fanout/erc3009.ts)
 - **[Mera](https://mera.category.xyz)**: turns a passkey into an EVM account, and a second key from the same passkey signs the Earnings Passport. [`passkey-account.ts`](apps/web/lib/payee/passkey-account.ts), [`passport-key.ts`](apps/web/lib/payee/passport-key.ts)
 - **[Privy](https://privy.io)**: email sign-in for platforms and payees. It proves a claimer owns the email a payment was sent to. [`lib/auth/`](apps/web/lib/auth/)
+- **[Chainlink CRE](https://docs.chain.link/cre)**: runs the recurring work. One workflow returns unclaimed money to platforms once a payout's claim window ends; another submits the payouts a platform scheduled ahead of time. Both deliver signed reports to a small receiver contract. [`cre/`](cre/), [`refund-expired/workflow.ts`](cre/refund-expired/workflow.ts), [`scheduled-payouts/workflow.ts`](cre/scheduled-payouts/workflow.ts), [`FanoutKeeper.sol`](smart-contract/contracts/FanoutKeeper.sol)
 - **[Envio](https://envio.dev)**: indexes the contracts for payout history, claim status and wallet activity. [`indexer/`](indexer/), [`indexer.ts`](apps/web/lib/fanout/indexer.ts)
 - **[Aurora](https://aurora.dev) Intents**: lets a platform add money from Base, Arbitrum, Ethereum and other chains. [`aurora.ts`](apps/web/lib/aurora.ts), [`aurora-server.ts`](apps/web/lib/aurora-server.ts)
 - **[PostHog](https://posthog.com)**: product analytics and error tracking. Claim keys are scrubbed from every event. [`instrumentation-client.ts`](apps/web/instrumentation-client.ts), [`scrub.ts`](apps/web/lib/analytics/scrub.ts)
@@ -161,6 +162,23 @@ pnpm test                    # handler tests, no network needed
 pnpm dev                     # local indexer, needs Docker
 ```
 
+**Recurring work** (`cre/`, Chainlink CRE workflows in TypeScript, run with [Bun](https://bun.sh)):
+
+- `refund-expired`: on a cron, asks the indexer for payments still unclaimed after their claim window and sends one report that refunds them (`ClaimEscrow.refundMany`) to the platforms that paid them.
+- `scheduled-payouts`: on a cron, reads a schedule of payouts the platform signed ahead of time (one CreateBatch authorization per period, made with `cre/scripts/sign-schedule.ts`), checks each due one onchain, and sends it (`BatchPayout.createBatchFor`).
+
+Both send their reports to [`FanoutKeeper`](smart-contract/contracts/FanoutKeeper.sol), which accepts them only from the Chainlink forwarder and, once configured, only from the expected workflow owner and workflow ids. Neither workflow can move money anywhere but where the platform already agreed: refunds always go back to the paying platform, and every scheduled row is covered by the platform's signature.
+
+```bash
+pnpm cre:setup               # install the workflows' dependencies
+pnpm cre:test                # workflow tests with the CRE SDK's test runtime
+pnpm cre:simulate            # end to end on a local fork of Monad testnet (needs anvil)
+```
+
+`cre:simulate` forks Monad testnet, deploys FanoutKeeper on the fork, creates an expired and an open payout and two scheduled ones, then runs `cre workflow simulate --target local-simulation --broadcast` for both workflows and checks the result onchain: expired rows refunded, the open row untouched, the due scheduled payout created. `cre workflow simulate` needs a CRE account (`cre login`); without one the script delivers the same reports through the fork's MockKeystoneForwarder instead and runs the same checks.
+
+To deploy: deploy FanoutKeeper with `ignition/modules/FanoutKeeper.ts` and the forwarder for the chain ([forwarder directory](https://docs.chain.link/cre/guides/workflow/using-evm-client/forwarder-directory-ts)), put its address in `config.production.json` for both workflows, then `cre workflow deploy <workflow> --target production-settings` (deploying needs CRE deploy access). Finally call `setExpectedWorkflowOwner` and `setWorkflowIdAllowed` on the keeper.
+
 ## Repo layout
 
 ```
@@ -168,8 +186,9 @@ apps/web/          Next.js app: landing page, platform dashboard, claim page, pa
   app/api/         relayer (claim, send, settle), claim emails, FX rates, Aurora
   lib/fanout/      contract client (onchain and mock), relayer, claim keys, indexer queries
   lib/payee/       passkey account, app lock, Earnings Passport
-smart-contract/    Treasury, BatchPayout, ClaimEscrow, SettleToUsdc; tests; Ignition deploy records
+smart-contract/    Treasury, BatchPayout, ClaimEscrow, SettleToUsdc, FanoutKeeper; tests; Ignition deploy records
 indexer/           Envio indexer for the contract events
+cre/               Chainlink CRE workflows: expired-payment refunds, scheduled payouts; local fork simulation
 Fanout — PRD.md    product requirements
 ```
 
