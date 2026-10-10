@@ -15,6 +15,7 @@ import { RequireAuth } from "./require-auth";
 const NAV = [
   { href: "/dashboard", label: "Overview" },
   { href: "/dashboard/payouts/new", label: "New payout" },
+  { href: "/dashboard/agents", label: "Agents" },
 ] as const;
 
 const focusRing =
@@ -29,7 +30,9 @@ export function DashboardShell({ children }: { children: ReactNode }) {
     const active =
       item.href === "/dashboard"
         ? pathname === "/dashboard" || (pathname.startsWith("/dashboard/payouts/") && pathname !== "/dashboard/payouts/new")
-        : pathname === item.href;
+        : item.href === "/dashboard/agents"
+          ? pathname.startsWith("/dashboard/agents")
+          : pathname === item.href;
     return (
       <Link
         key={item.href}

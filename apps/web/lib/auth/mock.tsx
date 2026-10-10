@@ -2,8 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type FormEvent, type ReactNode } from "react";
 import posthog from "posthog-js";
-import { keccak256, toBytes, type Address } from "viem";
-import { privateKeyToAccount } from "viem/accounts";
+import type { Address } from "viem";
 import { createConfig, http, WagmiProvider } from "wagmi";
 import { Button } from "@/components/ui/button";
 import {
@@ -18,6 +17,7 @@ import { Label } from "@/components/ui/label";
 import { activeChain } from "@/lib/chains";
 import { normalizeEmail } from "@/lib/email-hash";
 import { AuthContext } from "./context";
+import { mockAccountForEmail } from "./mock-account";
 import type { AuthContextValue } from "./types";
 
 /**
@@ -30,7 +30,7 @@ const SESSION_KEY = "fanout.mockauth.email";
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function addressForEmail(email: string): Address {
-  return privateKeyToAccount(keccak256(toBytes(`fanout-mock:${email}`))).address;
+  return mockAccountForEmail(email).address;
 }
 
 // Session lives in localStorage; useSyncExternalStore keeps SSR (no storage) and client in sync.

@@ -192,6 +192,22 @@ export async function sendClaimEmails(input: {
     if (!valid) throw new EmailRefused("Couldn't confirm these payments are yours.");
     mine.add(input.proof.address);
   }
+  return deliverClaimEmails(mine, input.requests, { reminder: input.reminder, schedule: input.schedule });
+}
+
+/**
+ * The sending half of sendClaimEmails, for callers that already know which platform is asking:
+ * agent payouts, whose claim keys the server holds (lib/agents/service.ts). Every link still goes
+ * through the same chain checks before anything is sent.
+ */
+export async function deliverClaimEmails(
+  mine: Set<Address>,
+  requests: ClaimEmailRequest[],
+  options: { reminder?: boolean; schedule?: (task: () => Promise<void>) => void } = {},
+): Promise<ClaimEmailResult> {
+  if (!emailConfigured()) throw new EmailRefused("Emailing links isn't set up yet. Use Copy link instead.");
+  const input = { requests, ...options };
+  const signers = requests.map((r) => claimSignerFromKey(r.key));
   const claims = await readClaims(signers);
   const origin = walletOrigin();
 

@@ -31,6 +31,7 @@ It takes about 3 minutes. You need two email inboxes you can open (or one with p
 - **Live claim counter and per-person status.** [`claim-counter.tsx`](apps/web/components/payouts/claim-counter.tsx), [`batch-detail.tsx`](apps/web/components/payouts/batch-detail.tsx)
 - **Reminders and CSV export.** [`claim-reminders.tsx`](apps/web/components/payouts/claim-reminders.tsx), [`batch-export.ts`](apps/web/lib/batch-export.ts)
 - **Refunds.** Money not claimed within 30 days goes back to the platform's balance. [`ClaimEscrow.sol`](smart-contract/contracts/ClaimEscrow.sol)
+- **Payouts by AI agents, with you approving.** An agent key with signed limits, an MCP server for the agent, and one-tap approvals. Agents with no account can pay over x402. See [For AI agents](#for-ai-agents). [`lib/agents/`](apps/web/lib/agents/), [`lib/x402/`](apps/web/lib/x402/)
 - **Add money from another chain** with Aurora (mainnet routes only). [`aurora.ts`](apps/web/lib/aurora.ts), [`cross-chain-dialog.tsx`](apps/web/components/dashboard/cross-chain-dialog.tsx)
 
 **For payees**
@@ -92,6 +93,54 @@ Example transactions:
 | A payee's claim from that batch, sent by the relayer (`monad-ausd`) | [`0xd11d…be82`](https://testnet.monadscan.com/tx/0xd11d5eb6acd79badc31f1fcb7382123b80b9964fd94bff92214fb167ec20be82) |
 
 Deploy records, including every transaction: [`smart-contract/ignition/deployments/`](smart-contract/ignition/deployments/).
+
+## For AI agents
+
+AI agents can run payouts through Fanout, with a person in control. There are two ways in.
+
+**1. MCP, for an agent working for a platform.** On the dashboard's **Agents** page a platform creates an agent key and sets its limits: most per payout, most per day, most people per payout, an optional allowlist of emails or domains, and when the key expires. The platform signs these limits once with its own account (an EIP-712 `AgentPolicy`, checked on the server; no contract changes). The key is shown once; Fanout stores only its SHA-256.
+
+The agent connects to `/api/mcp` ([Model Context Protocol](https://modelcontextprotocol.io/specification/latest/basic/transports), Streamable HTTP, [TypeScript SDK](https://github.com/modelcontextprotocol/typescript-sdk) v2) with `Authorization: Bearer fo_agent_...`. Its tools:
+
+| Tool | What it does |
+| --- | --- |
+| `create_payout` | Asks to pay up to 150 people by email (`{ email, amount: "25.00", note? }`, the same rules as a CSV upload). Returns `approval_needed` with an approval link, or the sent payout if the platform approves while it waits. Takes an `idempotency_key`. |
+| `get_payout_status` | Where a payout stands, and each person's status: claimed, waiting or returned. |
+| `list_payouts` | This agent's payouts, newest first. |
+| `send_reminders` | Emails people who haven't claimed yet, at most once a day. |
+| `return_unclaimed` | After the claim window, puts unclaimed money back in the platform's balance. |
+| `get_balance`, `get_policy` | The payout balance, and the agent's limits and how much of today's is left. |
+
+Amounts are always strings in dollars with two decimals, never floats. Errors say what to fix, row by row.
+
+**Every payout needs the platform's approval.** The agent never signs anything that moves money. `create_payout` builds the payout on the server (claim keys included, kept encrypted with `AGENT_SECRET` so the links can be emailed and reminded) and files an approval request. Within the limits it's a one-tap approval (and a push notification, if the platform turned them on); over them, the approval page lists exactly which limits it goes over and asks for a full review. The platform's browser checks the payout against the rows it shows, keeps the claim links, and signs the `CreateBatch` with the platform's account; the relayer then submits `createBatchFor`, which checks that signature onchain. A paused key (the kill switch), a revoked key or an expired one can't ask at all, and pausing cancels what's waiting.
+
+Why not let payouts within the limits go through on their own? `CreateBatch` commits to each row's claim signer and amount, so signatures made in advance (like the CRE schedule) only work for payouts known in advance. Anything else would need Fanout to hold a key that can spend the platform's balance, which this design avoids. A platform account that is a smart account could later grant a bounded session key instead (`createBatchFor` already accepts ERC-1271 signatures).
+
+Connect it from the Agents page (Claude Code, Cursor, Claude Desktop through `mcp-remote`, or an OpenAI Responses API `mcp` tool), or with Claude Code:
+
+```bash
+claude mcp add --transport http fanout https://fanout.tech/api/mcp --header "Authorization: Bearer fo_agent_..."
+```
+
+Try it locally: `pnpm dev`, then `pnpm --filter web mcp-smoke --url http://localhost:3000` creates a key for a demo platform, connects an MCP client, asks for payouts within and over the limits, approves one as the platform and checks it.
+
+**2. x402, for an agent with no Fanout account.** `POST /api/x402/payout` with rows and an `Idempotency-Key` answers `402 Payment Required` with [x402 v2](https://github.com/coinbase/x402/blob/main/specs/x402-specification-v2.md) requirements in the `PAYMENT-REQUIRED` header ([HTTP transport](https://github.com/coinbase/x402/blob/main/specs/transports-v2/http.md)): scheme `exact`, the payout total plus a fee (0.5%, at least $0.10), USDC on Monad testnet, paid to Fanout's operator account. The agent signs an ERC-3009 authorization for exactly that and retries with `PAYMENT-SIGNATURE`. Fanout verifies it, checks it can make the payout and email it, settles the payment, pays the rows from the operator account's payout balance, emails the claim links, and answers with the payout number, a status URL (`GET /api/x402/payout/<id>`, counts only, no emails) and `PAYMENT-RESPONSE`.
+
+```bash
+curl -i -X POST https://fanout.tech/api/x402/payout \
+  -H "content-type: application/json" -H "Idempotency-Key: payout-0001" \
+  -d '{"rows":[{"email":"ana@example.com","amount":"25.00","note":"Thanks!"}]}'
+```
+
+Limits: 50 people and $1,000 per payout by default. The same `Idempotency-Key` with the same body returns the first answer and is never charged twice; with another body it's refused. If the payout fails after the payment settled, the operator sends the payment back to the payer at once; if even that fails, the key's record keeps the payer and transaction (`refund_due`) for a manual refund. Unclaimed money returns to the operator's balance after the claim window; returning it to the payer is manual for now.
+
+What's verified and what isn't (checked 2026-10-08):
+
+- Monad's docs list one x402 facilitator for Monad, `https://x402-facilitator.molandak.org`, for testnet (`eip155:10143`) and mainnet (`eip155:143`), with Circle USDC (testnet `0x534b…43A3`, mainnet `0x7547…b603`, EIP-712 domain `USDC` / `2`) ([guide](https://docs.monad.xyz/guides/x402), [agentic payments](https://docs.monad.xyz/tooling-and-infra/agentic-payments)). Its `/supported` endpoint answered with `exact` (x402 v2) on both networks. Coinbase's CDP facilitator doesn't list Monad ([network support](https://docs.cdp.coinbase.com/x402/network-support)).
+- Not verified: a live settlement through that facilitator (no real payments were made), and AUSD with any facilitator (none documents it). For AUSD, or any network a facilitator doesn't serve, set `X402_FACILITATOR=self`: Fanout checks the ERC-3009 signature, balance and nonce itself and its relayer submits `transferWithAuthorization`.
+- Payouts are in AUSD, payments in USDC: the operator keeps AUSD in its payout balance as float and receives USDC. Converting between them is an operations task, outside the endpoint. Mainnet (`X402_NETWORK=monad`) needs the payout contracts on mainnet too; the endpoint refuses a network that isn't the contracts' chain.
+- The local demo checks real signatures but settles nothing and returns the claim links in the response instead of emailing them.
 
 ## Built with
 
