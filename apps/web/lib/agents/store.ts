@@ -18,7 +18,7 @@ export type AgentKeyRecord = {
   /** The platform's EIP-712 signature over `policy`. */
   signature: Hex;
   createdAt: number;
-  /** The kill switch: while true, every call with this key is refused. */
+  /** The kill switch: while true, the key can only read (status, balance, policy); it can't ask, remind or return. */
   paused: boolean;
   revokedAt?: number;
   lastUsedAt?: number;
