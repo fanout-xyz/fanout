@@ -10,7 +10,8 @@
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run",
     "demo-csv": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/demo-payout-csv.ts",
-    "vapid-keys": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/vapid-keys.ts"
+    "vapid-keys": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/vapid-keys.ts",
+    "translate": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/translate-messages.ts"
   },
   "dependencies": {
     "@category-labs/mera": "0.2.0",

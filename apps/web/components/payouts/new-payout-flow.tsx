@@ -170,7 +170,7 @@ export function NewPayoutFlow() {
     setBalanceAtApprove(balance.data);
     setStage("preparing");
     createPayout.mutate(
-      { rows: sheet.rows.map((r) => ({ email: r.email, amount: r.amount!, note: r.note })), claimWindowSeconds: claimWindow },
+      { rows: sheet.rows.map((r) => ({ email: r.email, amount: r.amount!, note: r.note, language: r.language })), claimWindowSeconds: claimWindow },
       {
         onSuccess: ({ batchId, emailed }) => {
           setStage("done");

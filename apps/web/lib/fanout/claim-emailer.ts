@@ -6,6 +6,7 @@ import { config } from "@/lib/config";
 import { MAX_ROWS } from "@/lib/csv";
 import { claimEmail } from "@/lib/email/claim-email";
 import { hashEmail } from "@/lib/email-hash";
+import { DEFAULT_LANG, normalizeLanguage, type Lang } from "@/lib/i18n/languages";
 import { notifyPaid, type PaidPayee } from "@/lib/push/sender";
 import { claimEscrowAbi } from "./abis";
 import { claimEmailProofMessage, type ClaimEmailProof } from "./claim-email-proof";
@@ -34,11 +35,19 @@ import { walletOrigin } from "@/lib/site-url";
  * (lib/push/sender.ts). It runs after the response and can't change or fail the emails.
  */
 
-export type ClaimEmailRequest = { key: Hex; email: string; note?: string };
+export type ClaimEmailRequest = { key: Hex; email: string; note?: string; language?: Lang };
 export type ClaimEmailResult = { sent: Address[]; failed: { claimSigner: Address; reason: string }[] };
 
 /** Refusals whose message is safe to show the platform. */
 export class EmailRefused extends Error {}
+
+/** Opens the claim page in the payee's language: /claim?lang=es#k=... (the key stays in the fragment). */
+export function withLanguage(link: string, language: Lang | undefined): string {
+  if (!language || language === DEFAULT_LANG) return link;
+  const hash = link.indexOf("#");
+  const [base, fragment] = hash === -1 ? [link, ""] : [link.slice(0, hash), link.slice(hash)];
+  return `${base}${base.includes("?") ? "&" : "?"}lang=${language}${fragment}`;
+}
 
 type ClaimRecord = { amount: bigint; platform: Address; status: "sent" | "claimed" | "refunded"; emailHash?: Hex; expiresAt?: number };
 
@@ -52,10 +61,11 @@ export function parseRequests(body: unknown): ClaimEmailRequest[] {
   const links = (body as { links?: unknown })?.links;
   if (!Array.isArray(links) || links.length === 0 || links.length > MAX_ROWS) throw new EmailRefused("Nothing to email.");
   return links.map((l) => {
-    const { key, email, note } = (l ?? {}) as Record<string, unknown>;
+    const { key, email, note, language } = (l ?? {}) as Record<string, unknown>;
     if (typeof key !== "string" || !isHex(key) || key.length !== 66) throw new EmailRefused("A claim link isn't valid.");
     if (typeof email !== "string" || email.length > 254) throw new EmailRefused("An email address isn't valid.");
-    return { key, email, note: typeof note === "string" ? note : undefined };
+    const lang = typeof language === "string" ? normalizeLanguage(language) : null;
+    return { key, email, note: typeof note === "string" ? note : undefined, ...(lang ? { language: lang } : {}) };
   });
 }
 
@@ -195,7 +205,7 @@ export async function sendClaimEmails(input: {
     if (!mine.has(claim.platform)) return refuse("This payout wasn't sent from your account.");
     if (claim.status !== "sent") return refuse(claim.status === "claimed" ? "Already claimed." : "Already returned to you.");
     if (!claim.emailHash || claim.emailHash !== hashEmail(req.email)) return refuse("The email doesn't match the one this payout was made to.");
-    const link = buildClaimLink(origin, req.key);
+    const link = withLanguage(buildClaimLink(origin, req.key), req.language);
     const { subject, text, html } = claimEmail({
       platformName: config.platformName,
       amount: claim.amount,
@@ -204,6 +214,7 @@ export async function sendClaimEmails(input: {
       note: req.note,
       expiresAt: claim.expiresAt,
       reminder: input.reminder,
+      language: req.language,
     });
     outgoing.push({ claimSigner, to: req.email.trim(), subject, text, html, paid: { emailHash: claim.emailHash, amount: claim.amount } });
   });
