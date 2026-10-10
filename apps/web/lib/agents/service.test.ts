@@ -96,7 +96,7 @@ describe("create_payout", () => {
   it("files a one-tap approval when within policy", async () => {
     const { deps, auth } = await setup();
     const { key, policy: pol } = await auth();
-    const r = await createPayoutRequest(deps, key, pol, { rows: rows(2), memo: "Bug bounty, March" });
+    const r = await createPayoutRequest(deps, key, pol, { rows: rows(2), memo: "Design contest, March" });
     expect(r).toMatchObject({ status: "approval_needed", within_policy: true, policy_notes: [], total: "20.00", people: 2, claim_window_days: 30 });
     expect(r.approval_url).toBe(`https://fanout.test/dashboard/agents/approvals/${r.payout_request_id}`);
     // Nothing moved yet.
