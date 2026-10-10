@@ -146,18 +146,22 @@ export type Verdict =
   | { ok: true; income: MonthlyIncome }
   | { ok: false; reason: "signature" | "short-month" | "few-platforms" | "future"; detail?: string; income?: MonthlyIncome };
 
-/** Checks both signatures, then the account's actual payouts against the claim. */
-export async function verifyPassport(p: Passport, history: PayeeHistoryItem[], now: number): Promise<Verdict> {
+/** Both signatures: the account vouches for the passport key, and the passport key signed the statement. */
+export async function passportSignaturesValid(p: Passport): Promise<boolean> {
   const s = p.statement;
   try {
     const keyOwner = await recoverMessageAddress({ message: linkMessage(s.account, s.passportKey), signature: p.link });
     const signer = await recoverMessageAddress({ message: statementMessage(s), signature: p.sig });
-    if (getAddress(keyOwner) !== getAddress(s.account) || getAddress(signer) !== getAddress(s.passportKey)) {
-      return { ok: false, reason: "signature" };
-    }
+    return getAddress(keyOwner) === getAddress(s.account) && getAddress(signer) === getAddress(s.passportKey);
   } catch {
-    return { ok: false, reason: "signature" };
+    return false;
   }
+}
+
+/** Checks both signatures, then the account's actual payouts against the claim. */
+export async function verifyPassport(p: Passport, history: PayeeHistoryItem[], now: number): Promise<Verdict> {
+  const s = p.statement;
+  if (!(await passportSignaturesValid(p))) return { ok: false, reason: "signature" };
   if (s.issuedAt > now + 5 * 60_000 || s.months.some((m) => m > monthOf(now))) return { ok: false, reason: "future" };
 
   const income = monthlyIncome(history, s.months);
