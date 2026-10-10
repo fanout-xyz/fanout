@@ -29,6 +29,8 @@ export type MockState = {
   history: Record<Address, PayeeHistoryItem[]>;
   /** account -> when it last got test dollars (unix ms). Optional: older saved state has none. */
   testDollars?: Record<Address, number>;
+  /** CreateBatch nonces used per platform ("platform:nonce"), like BatchPayout.authorizationState. Optional: older saved state has none. */
+  batchNonces?: Record<string, true>;
 };
 
 export function emptyState(): MockState {
