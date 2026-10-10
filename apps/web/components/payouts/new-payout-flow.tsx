@@ -8,22 +8,40 @@ import { DepositDialog } from "@/components/dashboard/deposit-dialog";
 import { Spinner, TxProgress, type TxStage } from "@/components/tx-progress";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useAiPost, useAiStatus } from "@/lib/ai/use-ai";
+import { buildProposal, flagRows, proposalToCsv, summarize, type ProposedRow, type SheetReading } from "@/lib/assist/proposal";
+import { readTable, tableForAi, TableUnreadable, type Table } from "@/lib/assist/table";
 import { parsePayoutCsv, withoutErrorRows, type PayoutSheet } from "@/lib/csv";
 import { CLAIM_WINDOW_OPTIONS, DEFAULT_CLAIM_WINDOW_SECONDS } from "@/lib/claim-window";
 import { claimWindowEnabled, config } from "@/lib/config";
+import { usePayoutHistory } from "@/lib/fanout/payout-history";
 import { useCreatePayout, useTreasuryBalance } from "@/lib/fanout/queries";
 import { formatUsd } from "@/lib/money";
+import { assessPayout, riskSignature } from "@/lib/payout-risk";
+import { AssistantReview } from "./assistant-review";
+import { AssistOffer, PasteTable } from "./assistant-intake";
 import { CsvDropzone } from "./csv-dropzone";
 import { PayoutPreview } from "./payout-preview";
 import { ScreeningCheck } from "./screening-check";
+import { UnusualPayoutWarning } from "./unusual-payout-warning";
 
-type Loaded = { sheet: PayoutSheet; fileName: string };
+/** A plain CSV upload, or rows the spreadsheet assistant proposed (checked and edited before approval). */
+type Source =
+  | { kind: "csv"; sheet: PayoutSheet }
+  | { kind: "assist"; rows: ProposedRow[]; emptyRows: number; mappingNote: string };
+type Loaded = { fileName: string; text: string; source: Source };
+/** Before anything is loaded: pasting a table, or offering the assistant for a file the plain reader can't use. */
+type Intake = { kind: "paste" } | { kind: "offer"; text: string; fileName: string; reason: string };
 
 export function NewPayoutFlow() {
   const router = useRouter();
   const balance = useTreasuryBalance();
   const createPayout = useCreatePayout();
+  const ai = useAiStatus();
+  const aiPost = useAiPost();
   const [loaded, setLoaded] = useState<Loaded | null>(null);
+  const [intake, setIntake] = useState<Intake | null>(null);
+  const [reading, setReading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [screened, setScreened] = useState(false);
   const [stage, setStage] = useState<TxStage | null>(null);
@@ -33,14 +51,42 @@ export function NewPayoutFlow() {
   const [balanceAtApprove, setBalanceAtApprove] = useState<bigint | undefined>(undefined);
   const shownBalance = stage !== null && balanceAtApprove !== undefined ? balanceAtApprove : balance.data;
 
-  const sheet = loaded?.sheet;
+  // Recent payouts and who they paid: for the unusual-payout checks and "more than this person usually gets".
+  const past = usePayoutHistory();
+  const usualCents = useMemo(() => {
+    const centsScale = 10n ** BigInt(Math.max(0, config.stablecoin.decimals - 2));
+    return new Map([...past.payees].map(([email, amount]) => [email, amount / centsScale]));
+  }, [past.payees]);
+
+  const source = loaded?.source;
+  const assistRows = source?.kind === "assist" ? source.rows : null;
+  const assistFlags = useMemo(() => (assistRows ? flagRows(assistRows, usualCents) : null), [assistRows, usualCents]);
+  const assistSummary = useMemo(() => (assistRows && assistFlags ? summarize(assistRows, assistFlags) : null), [assistRows, assistFlags]);
+  // The assistant's rows go through the same checks as an upload: as a CSV, through parsePayoutCsv.
+  const sheet = useMemo(
+    () => (!source ? undefined : source.kind === "csv" ? source.sheet : parsePayoutCsv(proposalToCsv(source.rows))),
+    [source],
+  );
+  const toCheck = assistSummary?.toCheck ?? 0;
   const people = sheet?.rows.length ?? 0;
   const hasRowErrors = !!sheet && sheet.errorRowCount > 0;
   const hasFileErrors = !!sheet && sheet.fileErrors.length > 0;
   const shortfall = sheet && shownBalance !== undefined && sheet.total > shownBalance ? sheet.total - shownBalance : 0n;
-  const valid = !!sheet && people > 0 && !hasRowErrors && !hasFileErrors;
+  const valid = !!sheet && people > 0 && !hasRowErrors && !hasFileErrors && toCheck === 0;
   const busy = stage !== null;
-  const canApprove = valid && screened && shortfall === 0n && balance.isSuccess && !busy;
+
+  // Unusual-payout checks (lib/payout-risk.ts): a payout unlike this platform's usual ones needs an extra tick.
+  const risk = useMemo(
+    () =>
+      valid && sheet && past.ready
+        ? assessPayout({ rows: sheet.rows.map((r) => ({ email: r.email, amount: r.amount! })), history: past.history, payees: past.payees })
+        : [],
+    [valid, sheet, past.ready, past.history, past.payees],
+  );
+  const riskKey = riskSignature(risk);
+  const [riskConfirmed, setRiskConfirmed] = useState<string | null>(null);
+  const riskOk = risk.length === 0 || riskConfirmed === riskKey;
+  const canApprove = valid && screened && past.ready && riskOk && shortfall === 0n && balance.isSuccess && !busy;
 
   const onPassed = useCallback(() => setScreened(true), []);
 
@@ -56,7 +102,14 @@ export function NewPayoutFlow() {
     setLoadError(null);
     setScreened(false);
     createPayout.reset();
-    setLoaded({ sheet: parsedSheet, fileName });
+    // Other columns (an export, a pasted range): offer the assistant instead of a dead end.
+    if (ai.on && parsedSheet.rows.length === 0 && parsedSheet.fileErrors.some((e) => e.startsWith("Missing column"))) {
+      setLoaded(null);
+      setIntake({ kind: "offer", text, fileName, reason: "It doesn't have email and amount columns." });
+      return;
+    }
+    setIntake(null);
+    setLoaded({ source: { kind: "csv", sheet: parsedSheet }, fileName, text });
     posthog.capture("payout_csv_loaded", {
       recipient_count: parsedSheet.rows.length,
       invalid_row_count: parsedSheet.errorRowCount,
@@ -64,12 +117,60 @@ export function NewPayoutFlow() {
     });
   }
 
+  async function readWithAssistant(text: string, fileName: string) {
+    setReading(true);
+    setLoadError(null);
+    try {
+      let table: Table;
+      try {
+        table = readTable(text);
+      } catch (err) {
+        throw new Error(err instanceof TableUnreadable ? `Couldn't read it: ${err.message}` : "Couldn't read it.");
+      }
+      const reading = await aiPost<SheetReading>("/api/ai/read-sheet", tableForAi(table));
+      const { rows, emptyRows } = buildProposal(table, reading);
+      if (rows.length === 0) throw new Error("Our assistant didn't find anyone to pay in it.");
+      setScreened(false);
+      createPayout.reset();
+      setIntake(null);
+      setLoaded({ fileName, text, source: { kind: "assist", rows, emptyRows, mappingNote: describeMapping(table, reading) } });
+      posthog.capture("payout_assistant_read", {
+        recipient_count: rows.length,
+        to_check_count: summarize(rows, flagRows(rows)).toCheck,
+        ai_mode: ai.mode,
+      });
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : "Our assistant couldn't read it. Try again.");
+    } finally {
+      setReading(false);
+    }
+  }
+
+  function setAssistRows(rows: ProposedRow[]) {
+    if (!loaded || loaded.source.kind !== "assist") return;
+    setScreened(false);
+    setLoaded({ ...loaded, source: { ...loaded.source, rows } });
+  }
+
+  function leaveOutProblems() {
+    if (!loaded || !sheet) return;
+    if (loaded.source.kind === "csv") return setLoaded({ ...loaded, source: { kind: "csv", sheet: withoutErrorRows(sheet) } });
+    const flags = assistFlags!;
+    setAssistRows(loaded.source.rows.map((r) => (flags.get(r.id)?.some((f) => f.blocking) ? { ...r, dropped: true } : r)));
+  }
+
+  function reset() {
+    setLoaded(null);
+    setIntake(null);
+    setLoadError(null);
+  }
+
   function approve() {
     if (!sheet || !canApprove) return;
     setBalanceAtApprove(balance.data);
     setStage("preparing");
     createPayout.mutate(
-      { rows: sheet.rows.map((r) => ({ email: r.email, amount: r.amount!, note: r.note })), claimWindowSeconds: claimWindow },
+      { rows: sheet.rows.map((r) => ({ email: r.email, amount: r.amount!, note: r.note, language: r.language })), claimWindowSeconds: claimWindow },
       {
         onSuccess: ({ batchId, emailed }) => {
           setStage("done");
@@ -80,6 +181,8 @@ export function NewPayoutFlow() {
             demo_mode: config.useMock,
             emailed_count: emailedCount,
             claim_window_seconds: claimWindow,
+            unusual_reasons: risk.map((r) => r.kind),
+            from_assistant: loaded?.source.kind === "assist",
             // Person properties for retention: split platforms from payees, and know when each started.
             $set: { is_platform: true },
             $set_once: { first_payout_at: new Date().toISOString() },
@@ -124,8 +227,8 @@ export function NewPayoutFlow() {
           <h1 className="font-display text-[32px] leading-tight tracking-[-0.02em]">New payout</h1>
           <p className="mt-1 text-muted">Upload who gets what. Everyone is paid in one transaction.</p>
         </div>
-        {loaded && !busy && (
-          <Button variant="secondary" onClick={() => setLoaded(null)}>
+        {(loaded || intake) && !busy && !reading && (
+          <Button variant="secondary" onClick={reset}>
             Use a different file
           </Button>
         )}
@@ -137,8 +240,19 @@ export function NewPayoutFlow() {
         </p>
       )}
 
-      {!loaded ? (
-        <CsvDropzone onLoad={load} onError={setLoadError} />
+      {!loaded && intake?.kind === "paste" ? (
+        <PasteTable busy={reading} demo={ai.demo} onRead={(text) => void readWithAssistant(text, "Pasted table")} onCancel={reset} />
+      ) : !loaded && intake?.kind === "offer" ? (
+        <AssistOffer
+          fileName={intake.fileName}
+          reason={intake.reason}
+          busy={reading}
+          demo={ai.demo}
+          onRead={() => void readWithAssistant(intake.text, intake.fileName)}
+          onCancel={reset}
+        />
+      ) : !loaded ? (
+        <CsvDropzone onLoad={load} onError={setLoadError} assistant={ai.on ? { onPaste: () => setIntake({ kind: "paste" }) } : undefined} />
       ) : (
         <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
           <div className="flex min-w-0 flex-col gap-4">
@@ -160,15 +274,45 @@ export function NewPayoutFlow() {
             {hasRowErrors && !hasFileErrors && (
               <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-danger/30 bg-danger/10 px-4 py-3">
                 <p className="text-sm font-semibold text-danger">
-                  {sheet!.errorRowCount} of {people} rows need fixing. Fix them in the file and upload again, or leave them out.
+                  {sheet!.errorRowCount} of {people} rows need fixing.{" "}
+                  {loaded.source.kind === "assist" ? "Fix them below, or leave them out." : "Fix them in the file and upload again, or leave them out."}
                 </p>
-                <Button variant="secondary" size="sm" onClick={() => setLoaded({ ...loaded, sheet: withoutErrorRows(sheet!) })}>
-                  Leave out {sheet!.errorRowCount} {sheet!.errorRowCount === 1 ? "row" : "rows"}
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                  {ai.on && loaded.source.kind === "csv" && (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => {
+                        const { text, fileName } = loaded;
+                        const n = sheet!.errorRowCount;
+                        setLoaded(null);
+                        setIntake({ kind: "offer", text, fileName, reason: `${n} ${n === 1 ? "row has" : "rows have"} emails or amounts the plain reader couldn't use.` });
+                      }}
+                    >
+                      Fix with our assistant
+                    </Button>
+                  )}
+                  <Button variant="secondary" size="sm" onClick={leaveOutProblems}>
+                    Leave out {sheet!.errorRowCount} {sheet!.errorRowCount === 1 ? "row" : "rows"}
+                  </Button>
+                </div>
               </div>
             )}
 
-            {people > 0 && <PayoutPreview sheet={sheet!} />}
+            {loaded.source.kind === "assist" && assistFlags && assistSummary ? (
+              <AssistantReview
+                rows={loaded.source.rows}
+                flags={assistFlags}
+                summary={assistSummary}
+                emptyRows={loaded.source.emptyRows}
+                mappingNote={loaded.source.mappingNote}
+                demo={ai.demo}
+                disabled={busy}
+                onChange={setAssistRows}
+              />
+            ) : (
+              people > 0 && <PayoutPreview sheet={sheet!} />
+            )}
           </div>
 
           <aside aria-label="Payout summary" className="order-first flex flex-col gap-5 rounded-lg border border-line bg-surface p-6 lg:sticky lg:top-24 lg:order-none">
@@ -199,9 +343,25 @@ export function NewPayoutFlow() {
               </div>
             )}
 
+            {toCheck > 0 && !busy && (
+              <p className="rounded-md bg-warning/10 p-3 text-sm font-semibold text-warning">
+                Check {toCheck} {toCheck === 1 ? "row" : "rows"} first: fix, confirm or leave out each flagged row.
+              </p>
+            )}
+
             {valid && claimWindowEnabled() && <ClaimWindowPicker value={claimWindow} onChange={setClaimWindow} disabled={busy} />}
 
             {valid && <ScreeningCheck key={loaded.fileName + people} count={people} onPassed={onPassed} />}
+
+            {valid && risk.length > 0 && (
+              <UnusualPayoutWarning
+                reasons={risk}
+                aiWording={ai.on}
+                confirmed={riskConfirmed === riskKey}
+                onConfirm={(yes) => setRiskConfirmed(yes ? riskKey : null)}
+                disabled={busy}
+              />
+            )}
 
             {createPayout.isError && (
               <p role="alert" className="text-sm text-danger">
@@ -232,6 +392,14 @@ export function NewPayoutFlow() {
       )}
     </div>
   );
+}
+
+/** Which columns the assistant used: "Email from "Customer Email", amount from "Net"." */
+function describeMapping(table: Table, reading: SheetReading): string {
+  const c = reading.columns;
+  const named = (label: string, i: number | null) => (i === null ? null : `${label} from "${table.headers[i]}"`);
+  const parts = [named("Email", c.email), named("amount", c.amount), named("name", c.name), named("note", c.note), named("language", c.language), named("country", c.country)];
+  return `${parts.filter(Boolean).join(", ")}.`;
 }
 
 /** "30 days", "10 minutes": the option's label without "(default)". */

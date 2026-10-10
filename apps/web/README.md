@@ -37,6 +37,33 @@ The feature is off (no prompt, no switch, no sends) until it's configured:
 
 Notifications need HTTPS (localhost is fine for desktop browsers; a phone needs the tunnel). The service worker is `public/sw.js`.
 
+## AI assistance
+
+The AI only proposes. It never signs, sends or approves anything: a person reviews every payout and presses Pay, and rows from the assistant go through the same checks as a CSV upload (`lib/csv.ts`) first. Every answer is JSON, checked against a schema (`lib/ai/validate.ts`) before it's used; anything unexpected is refused and nothing changes.
+
+| Feature | What it does | What goes to the AI provider |
+| --- | --- | --- |
+| **Spreadsheet assistant** (New payout) | Drop a CSV/TSV/export with any columns, or paste rows from a spreadsheet. The assistant maps the columns (email, amount, name, note, country, language) and reads amounts written in words. Amounts like `$1,200.00`, `1.2k`, `1 200,50` are normalised in code; other currencies are flagged, never converted. Invalid emails, duplicates (with a merge), empty and total rows, and amounts far above the file's or that person's usual value are checked in code. The summary reads "48 people, $3,912 · 2 to check"; each flagged row is fixed, confirmed or left out before Pay is enabled. | The table: headers and cells (cut to 120 characters), **including email addresses**, which the UI says before anything is sent. Signed-in platforms only. |
+| **Unusual-payout warning** (New payout) | Compares the payout with the platform's recent payouts: total far above usual, a large first payout, new payees with large amounts, the same amount to many people, mostly new payees. Any of these needs an extra tick. The rules are code (`lib/payout-risk.ts`); with AI on, the assistant may reword them. | Only the names of the rules that fired and their numbers. No emails or names. A wording with a dollar amount it wasn't given is refused. |
+| **Claim page and email in the payee's language** | English, Spanish, Portuguese, French, Hindi, Urdu, Bengali, Yoruba, Hausa, Indonesian. The page uses the payout's `language` column (sent as `?lang=` on the emailed link), else Accept-Language, and has a switcher. Amounts and dates use the payee's format. | Nothing at view time: translations are static files in `lib/i18n/messages/`, machine-translated once with `pnpm --filter web translate` and committed (marked `machineTranslated`). |
+| **Passport letter** (Earnings Passport) | "Write a letter" drafts a short income letter for a landlord or lender, in a chosen language, from a freshly signed passport. The payee edits it before copying or sharing. | Only the passport statement's period, monthly floor and number of platforms (the server checks its signatures first). No payments, name, email or account; the verify link is added by code. |
+
+Limits: a 45-second timeout, request size caps (400 rows, 40 columns), per-IP and per-session (or per-passport) rate limits held in memory like the relay routes, and a signed-in session for the platform features. Nothing sent to the provider is stored or logged.
+
+**Turning it on.** Set, server side only:
+
+```bash
+AI_API_KEY=...                          # unset = every AI feature is hidden
+AI_BASE_URL=https://api.moonshot.ai/v1  # default
+AI_MODEL=kimi-k3                        # default
+```
+
+Kimi's base URL and models are in Moonshot's docs: [Start using the Kimi API](https://platform.kimi.ai/docs/guide/start-using-kimi-api), [JSON mode](https://platform.kimi.ai/docs/guide/use-json-mode-feature-of-kimi-api), [chat completions reference](https://platform.kimi.ai/docs/api/chat). Requests use `response_format: { type: "json_object" }`; on Moonshot, Kimi K3 is asked for `reasoning_effort: "low"` and Kimi K2 models get thinking turned off, since every answer is a short JSON object.
+
+**Switching providers.** The client speaks the OpenAI-compatible `/chat/completions` API, so any compatible provider works by changing `AI_BASE_URL`, `AI_MODEL` and `AI_API_KEY`; the Moonshot-only fields are sent only to Moonshot hosts.
+
+**Mock mode.** With `NEXT_PUBLIC_USE_MOCK=true` and no key, a deterministic stand-in answers instead (a header heuristic for spreadsheets, fixed templates for wording and letters), labelled "Demo mode" in the UI, so every flow works and can be tested without a provider.
+
 ## Getting Started
 
 First, run the development server:

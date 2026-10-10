@@ -43,6 +43,25 @@ describe("claimEmail", () => {
     expect(cleanNote("  September\n payout ")).toBe("September payout");
   });
 
+  it("is written in the payee's language, with dollars in their number format", () => {
+    const now = 1_790_000_000_000;
+    const es = claimEmail({ platformName: "Acme", amount: 1_234_500_000n, link, expiresAt: now / 1000 + 30 * 86_400, language: "es" }, now);
+    expect(es.subject).toMatch(/^Acme te envió 1\.?234,50\s?US\$$/); // Spanish groups from 5 digits
+    expect(es.text).toContain("Recibe tu dinero aquí:");
+    expect(es.text).toContain("Cóbralo antes del 21 de octubre de 2026.");
+    expect(es.html).toContain('lang="es"');
+    expect(es.html).toContain("Recibir mi dinero</a>");
+    expect(es.html).toContain(`href="${link}"`);
+  });
+
+  it("lays out right-to-left languages right to left, and keeps escaping", () => {
+    const ur = claimEmail({ platformName: "<b>Acme</b>", amount: 1n, link, balanceUrl: "https://wallet.fanout.tech", language: "ur" });
+    expect(ur.html).toContain('dir="rtl"');
+    expect(ur.html).not.toContain("<b>Acme</b>");
+    expect(ur.html).toContain("&lt;b&gt;Acme&lt;/b&gt;");
+    expect(ur.html).toContain('>wallet.fanout.tech</a>');
+  });
+
   it("marks reminders in the subject and body", () => {
     const { subject, text } = claimEmail({ platformName: "Acme", amount: 50_000_000n, link, reminder: true });
     expect(subject).toBe("Reminder: Acme sent you $50.00");

@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useReducedMotion } from "motion/react";
 import Link from "next/link";
 import posthog from "posthog-js";
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { Address, Hex } from "viem";
 import { PetalsMark } from "@/components/brand/petals-mark";
 import { Button } from "@/components/ui/button";
@@ -20,10 +20,14 @@ import { claimVerifyingContract, config } from "@/lib/config";
 import { claimSignerFromKey, parseClaimFragment, signClaim } from "@/lib/fanout/claim-keys";
 import { NotFoundError } from "@/lib/fanout/client";
 import { useFanoutClient } from "@/lib/fanout/use-fanout-client";
-import { formatUsd, toCents } from "@/lib/money";
+import { languageInfo, type Lang } from "@/lib/i18n/languages";
+import { formatDollars, formatDollarsFromUnits, translator, type MessageKey } from "@/lib/i18n/messages";
+import { useClaimLanguage } from "@/lib/i18n/use-claim-language";
+import { toCents } from "@/lib/money";
 import { usePayeeAccount } from "@/lib/payee/payee-account";
 import { useLocalCurrency } from "@/lib/use-local-currency";
 import { ClaimScreen, type ClaimScreenState } from "./claim-screen";
+import { LanguageSwitcher } from "./language-switcher";
 
 // The key lives in the URL fragment (#k=...), which browsers never send to a server.
 const subscribeHash = (cb: () => void) => {
@@ -31,14 +35,26 @@ const subscribeHash = (cb: () => void) => {
   return () => window.removeEventListener("hashchange", cb);
 };
 
-export function ClaimFlow() {
+export function ClaimFlow({ initialLang = "en" }: { initialLang?: Lang }) {
   const hash = useSyncExternalStore(subscribeHash, () => window.location.hash, () => null);
   const privateKey: Hex | null | undefined = hash === null ? undefined : parseClaimFragment(hash);
-  // Remount per link so state (claiming, success, errors) never carries over to another link.
-  return <ClaimForKey key={privateKey ?? String(privateKey)} privateKey={privateKey} />;
+  const [lang, setLang] = useClaimLanguage(initialLang);
+  const t = translator(lang);
+  return (
+    <div lang={lang} dir={languageInfo(lang).dir} className="flex flex-1 flex-col">
+      {/* Remount per link so state (claiming, success, errors) never carries over to another link. */}
+      <ClaimForKey key={privateKey ?? String(privateKey)} privateKey={privateKey} lang={lang} />
+      <div className="px-5 pb-6">
+        <LanguageSwitcher value={lang} label={t("language")} onChange={setLang} />
+      </div>
+    </div>
+  );
 }
 
-function ClaimForKey({ privateKey }: { privateKey: Hex | null | undefined }) {
+type T = ReturnType<typeof translator>;
+
+function ClaimForKey({ privateKey, lang }: { privateKey: Hex | null | undefined; lang: Lang }) {
+  const t = useMemo(() => translator(lang), [lang]);
   const claimSigner = privateKey ? claimSignerFromKey(privateKey) : null;
 
   const client = useFanoutClient();
@@ -91,14 +107,14 @@ function ClaimForKey({ privateKey }: { privateKey: Hex | null | undefined }) {
       } catch (err) {
         console.error("[claim] failed", err instanceof Error ? err.message : err);
         setPhase("ready");
-        setError(humanClaimError(err));
+        setError(t(humanClaimError(err)));
         void info.refetch();
       } finally {
         running.current = false;
         setWantsClaim(false);
       }
     },
-    [privateKey, claimSigner, client, queryClient, info, localCurrency],
+    [privateKey, claimSigner, client, queryClient, info, localCurrency, t],
   );
 
   // After sign-in (and the account being ready), continue the claim the payee started.
@@ -114,20 +130,15 @@ function ClaimForKey({ privateKey }: { privateKey: Hex | null | undefined }) {
   }
 
   // --- Dead ends first ---------------------------------------------------------
-  if (privateKey === undefined || (claimSigner && info.isPending)) return <Loading />;
+  if (privateKey === undefined || (claimSigner && info.isPending)) return <Loading label={t("loading")} />;
   if (!privateKey || (info.isError && info.error instanceof NotFoundError)) {
-    return (
-      <Notice
-        title="This link isn't valid"
-        body="Open the full link from your email. If it still doesn't work, ask the sender to send it again."
-      />
-    );
+    return <Notice title={t("invalidTitle")} body={t("invalidBody")} />;
   }
   if (info.isError) {
     return (
-      <Notice title="We couldn't load your payment" body="Check your connection and try again.">
+      <Notice title={t("loadErrorTitle")} body={t("loadErrorBody")}>
         <Button className="w-full" size="lg" onClick={() => void info.refetch()}>
-          Try again
+          {t("tryAgain")}
         </Button>
       </Notice>
     );
@@ -135,17 +146,17 @@ function ClaimForKey({ privateKey }: { privateKey: Hex | null | undefined }) {
 
   const claim = info.data!;
   const platform = config.platformName;
-  const amountLabel = formatUsd(claim.amount);
+  const amountLabel = formatDollarsFromUnits(lang, claim.amount, config.stablecoin.decimals);
 
   if (phase !== "success" && claim.status === "claimed") {
     return (
-      <Notice title="This payment has already been claimed" body={`${amountLabel} from ${platform} was claimed with this link.`}>
-        {authenticated && <BalanceLink />}
+      <Notice title={t("claimedTitle")} body={t("claimedBody", { amount: amountLabel, platform })}>
+        {authenticated && <BalanceLink t={t} />}
       </Notice>
     );
   }
   if (phase !== "success" && claim.status === "refunded") {
-    return <Notice title="This link has expired" body={`Ask ${platform} to send your ${amountLabel} again.`} />;
+    return <Notice title={t("expiredTitle")} body={t("expiredBody", { platform, amount: amountLabel })} />;
   }
 
   // Signed in, but no account on this device yet: set one up, then the effect above claims.
@@ -166,14 +177,16 @@ function ClaimForKey({ privateKey }: { privateKey: Hex | null | undefined }) {
           onClaim={onClaim}
           reduced={reduced}
           showLogo={false}
-          actionLabel={`Claim ${amountLabel}`}
-          hint={!authenticated ? signInHint(provider) : undefined}
+          actionLabel={t("claimAmount", { amount: amountLabel })}
+          hint={!authenticated ? t(provider === "privy" ? "hintPasskey" : "hintEmail") : undefined}
+          labels={{ youveBeenPaid: t("youveBeenPaid"), from: (p) => t("from", { platform: p }), claiming: t("claiming"), inBalance: t("inBalance") }}
+          formatAmount={(cents) => formatDollars(lang, cents)}
           error={error}
           successAction={
             <>
               {/* Claiming and changing to USDC are separate steps: the claim lands first, then this is offered. */}
               <UsdcOffer amount={claim.amount} source="claim" className="mb-4" />
-              <BalanceLink />
+              <BalanceLink t={t} />
               <InstallPrompt className="mt-4" />
               <PushPrompt source="claim" className="mt-4" />
             </>
@@ -182,14 +195,14 @@ function ClaimForKey({ privateKey }: { privateKey: Hex | null | undefined }) {
         />
       </div>
       {ready && authenticated && phase !== "success" && (
-        <p className="px-5 pb-6 text-center text-sm text-muted">
-          Signed in as {user?.email ?? "you"}.{" "}
+        <p className="px-5 pb-4 text-center text-sm text-muted">
+          {t("signedInAs", { email: user?.email ?? "…" })}{" "}
           <button
             type="button"
             onClick={() => void logout()}
             className="rounded-sm font-semibold text-foreground underline underline-offset-4 outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            Not you?
+            {t("notYou")}
           </button>
         </p>
       )}
@@ -197,35 +210,29 @@ function ClaimForKey({ privateKey }: { privateKey: Hex | null | undefined }) {
   );
 }
 
-function signInHint(provider: "privy" | "mock") {
-  return provider === "privy"
-    ? "You'll confirm with your email or a passkey. Nothing to install."
-    : "You'll confirm with your email. Nothing to install.";
-}
-
-/** Payee-facing wording; the raw error is logged, never shown. */
-function humanClaimError(err: unknown): string {
+/** Payee-facing wording (a message key); the raw error is logged, never shown. */
+function humanClaimError(err: unknown): MessageKey {
   const msg = err instanceof Error ? err.message : "";
-  if (/already been claimed/i.test(msg)) return "This payment has already been claimed.";
-  if (/different email/i.test(msg)) return "This payment was sent to a different email. Sign out, then sign in with the email address it was sent to.";
-  if (/sign in/i.test(msg)) return "Your session has expired. Sign in again to claim.";
-  if (/expired|returned to the sender/i.test(msg)) return "This link has expired. Ask the sender to send it again.";
-  if (/reach the server|connection/i.test(msg)) return "You seem to be offline. Check your connection and try again.";
-  if (err instanceof NotFoundError) return "This link isn't valid. Ask the sender to send it again.";
-  return "Something went wrong and nothing was claimed. Try again in a moment.";
+  if (/already been claimed/i.test(msg)) return "errAlreadyClaimed";
+  if (/different email/i.test(msg)) return "errDifferentEmail";
+  if (/sign in/i.test(msg)) return "errSession";
+  if (/expired|returned to the sender/i.test(msg)) return "errExpired";
+  if (/reach the server|connection/i.test(msg)) return "errOffline";
+  if (err instanceof NotFoundError) return "errInvalid";
+  return "errGeneric";
 }
 
-function BalanceLink() {
+function BalanceLink({ t }: { t: T }) {
   return (
     <Button asChild size="lg" variant="secondary" className="h-14 w-full">
-      <Link href="/balance">See your balance</Link>
+      <Link href="/balance">{t("seeBalance")}</Link>
     </Button>
   );
 }
 
-function Loading() {
+function Loading({ label }: { label: string }) {
   return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-4 px-5" aria-busy="true" aria-label="Loading your payment">
+    <div className="flex flex-1 flex-col items-center justify-center gap-4 px-5" aria-busy="true" aria-label={label}>
       <Skeleton className="h-5 w-32" />
       <Skeleton className="h-16 w-56" />
       <Skeleton className="h-8 w-48 rounded-full" />
