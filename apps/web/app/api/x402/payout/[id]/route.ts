@@ -9,8 +9,8 @@ import { x402Deps } from "@/lib/x402/server";
  * GET -> where a payout made over x402 stands: how many people claimed, are waiting, or had their
  * money returned. No emails: only the payer's agent should know who was paid.
  */
-export async function GET(_request: Request, ctx: RouteContext<"/api/x402/payout/[id]">) {
-  const wired = x402Deps();
+export async function GET(request: Request, ctx: RouteContext<"/api/x402/payout/[id]">) {
+  const wired = x402Deps(request.url);
   if ("unavailable" in wired) return Response.json({ error: wired.unavailable }, { status: 503 });
   const { id } = await ctx.params;
   const known = /^\d+$/.test(id) ? await wired.deps.kv.get(x402BatchKey(id)) : null;

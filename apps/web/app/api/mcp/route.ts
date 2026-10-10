@@ -10,7 +10,7 @@ import { agentDeps, agentsUnavailableReason } from "@/lib/agents/server";
 export const maxDuration = 60;
 
 async function serve(request: Request): Promise<Response> {
-  const deps = agentDeps();
+  const deps = agentDeps(request.url);
   if (!deps) return Response.json({ jsonrpc: "2.0", error: { code: -32000, message: agentsUnavailableReason() }, id: null }, { status: 503 });
   return serveMcp(deps, request);
 }

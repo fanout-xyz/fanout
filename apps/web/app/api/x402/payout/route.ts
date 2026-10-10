@@ -24,7 +24,7 @@ function limited(ip: string, max = 30, windowMs = 60_000) {
 export async function POST(request: Request) {
   const ip = (request.headers.get("x-forwarded-for") ?? "").split(",")[0].trim() || "unknown";
   if (limited(ip)) return Response.json({ error: "Too many requests. Wait a minute and try again." }, { status: 429 });
-  const wired = x402Deps();
+  const wired = x402Deps(request.url);
   if ("unavailable" in wired) return Response.json({ error: wired.unavailable }, { status: 503 });
   try {
     return await handleX402Payout(wired.deps, request);
@@ -35,8 +35,8 @@ export async function POST(request: Request) {
 }
 
 /** GET -> what this endpoint takes and charges, for agents discovering it. */
-export function GET() {
-  const wired = x402Deps();
+export function GET(request: Request) {
+  const wired = x402Deps(request.url);
   if ("unavailable" in wired) return Response.json({ available: false, reason: wired.unavailable });
   const { cfg, account } = wired.deps;
   return Response.json({

@@ -236,7 +236,10 @@ export async function describeRequest(deps: AgentDeps, record: PayoutRequestReco
       : "Waiting for the platform to approve. It's over the agent's policy (see policy_notes), so they'll review it in full. Check back with get_payout_status.",
     sent: statuses && count("waiting") === 0
       ? "Done: nobody is left to claim."
-      : "Sent. Each person got an email with a link to claim their money. send_reminders nudges people who haven't claimed; after the claim window, return_unclaimed puts what's left back in the balance.",
+      : (r.emailed && !r.emailed.configured
+          ? "Sent. Email isn't set up on this Fanout server, so the platform shares each claim link from its dashboard."
+          : "Sent. Each person got an email with a link to claim their money.") +
+        " send_reminders nudges people who haven't claimed; after the claim window, return_unclaimed puts what's left back in the balance.",
     declined: "The platform declined this payout. Nothing was sent.",
     expired: "Nobody approved this payout in time. Nothing was sent. Ask again with create_payout if it's still needed.",
     cancelled: "The platform paused or revoked the agent key, which cancelled this request. Nothing was sent.",
@@ -625,7 +628,8 @@ export async function approveRequest(deps: AgentDeps, platform: Address, id: str
 
     const keys = await claimKeys(deps, r);
     let emailed = { sent: 0, failed: 0, configured: !!deps.emailer };
-    if (deps.emailer) {
+    if (!deps.emailer) await deps.store.putRequest({ ...sent, emailed });
+    else {
       const result = await deps.emailer
         .send(input.platform, r.rows.map((x, i) => ({ key: keys[i], email: x.email, note: x.note || undefined })), false)
         .catch(() => ({ sent: [], failed: r.rows.map((_, i) => ({ claimSigner: r.claimSigners[i], reason: "failed" })) }));

@@ -21,7 +21,7 @@ import { agentStore, type AgentKeyRecord, type PayoutRequestRecord } from "./sto
  * (mock or the relayer), claim emails (Resend) and approval notifications (Web Push).
  * Null when something it can't work without is missing; agentsUnavailableReason() says what.
  */
-export function agentDeps(): AgentDeps | null {
+export function agentDeps(requestUrl?: string): AgentDeps | null {
   const kv = agentKv();
   const secret = agentSecret();
   if (!kv || !secret) return null;
@@ -29,11 +29,24 @@ export function agentDeps(): AgentDeps | null {
     store: agentStore(kv),
     ledger: config.useMock ? mockLedger() : onchainLedger(),
     secret,
-    origin: siteOrigin(),
+    origin: publicOrigin(requestUrl),
     decimals: config.stablecoin.decimals,
     emailer: emailConfigured() ? { send: (platform, requests, reminder) => deliverClaimEmails(new Set([platform]), requests, { reminder }) } : undefined,
     notify: notifyPlatform,
   };
+}
+
+/**
+ * Origin for links handed to agents (approval links, status URLs): NEXT_PUBLIC_SITE_URL when set,
+ * otherwise the origin the request came in on (a dev server on another port, a preview deploy).
+ */
+export function publicOrigin(requestUrl?: string): string {
+  if (process.env.NEXT_PUBLIC_SITE_URL || !requestUrl) return siteOrigin();
+  try {
+    return new URL(requestUrl).origin;
+  } catch {
+    return siteOrigin();
+  }
 }
 
 export function agentsUnavailableReason(): string {

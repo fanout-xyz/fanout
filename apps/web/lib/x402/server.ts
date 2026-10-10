@@ -10,7 +10,7 @@ import { deliverClaimEmails, emailConfigured } from "@/lib/fanout/claim-emailer"
 import { engine } from "@/lib/fanout/mock-engine";
 import { getMockState, saveMockState } from "@/lib/fanout/mock-store";
 import { ALL_CONTRACT_ERRORS, friendlyChainError, need } from "@/lib/fanout/onchain-client";
-import { siteOrigin } from "@/lib/site-url";
+import { publicOrigin } from "@/lib/agents/server";
 import { x402Chain } from "./chain";
 import { operatorKey, x402Config, type X402Config } from "./config";
 import { httpFacilitator, mockFacilitator, type Facilitator } from "./facilitator";
@@ -90,7 +90,7 @@ function onchainAccount(cfg: X402Config, key: Hex): PayoutAccount {
 }
 
 /** Wires the endpoint to this deployment, or says why it's off. */
-export function x402Deps(): { deps: X402Deps } | { unavailable: string } {
+export function x402Deps(requestUrl?: string): { deps: X402Deps } | { unavailable: string } {
   const kv = agentKv();
   if (!kv) return { unavailable: "Payouts over x402 need KV_REST_API_URL and KV_REST_API_TOKEN (or UPSTASH_REDIS_REST_*) for idempotency." };
   const cfg = x402Config();
@@ -103,7 +103,7 @@ export function x402Deps(): { deps: X402Deps } | { unavailable: string } {
     if (!key) return { unavailable: "Payouts over x402 aren't set up on this server (X402_OPERATOR_PRIVATE_KEY)." };
     account = onchainAccount(cfg, key);
   }
-  const origin = siteOrigin();
+  const origin = publicOrigin(requestUrl);
   return {
     deps: {
       kv,
