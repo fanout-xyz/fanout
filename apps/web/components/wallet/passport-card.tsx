@@ -1,151 +1,57 @@
 "use client";
 
-import { BadgeCheck, Copy, Share2 } from "lucide-react";
-import posthog from "posthog-js";
-import { useMemo, useState } from "react";
-import { toast } from "sonner";
-import { Spinner } from "@/components/tx-progress";
-import { Button } from "@/components/ui/button";
+import { ChevronRight } from "lucide-react";
+import Link from "next/link";
+import { useMemo, useState, type CSSProperties } from "react";
+import { PetalsMark } from "@/components/brand/petals-mark";
+import { StampArt } from "@/components/passport/stamp";
 import { usePayeeHistory } from "@/lib/fanout/queries";
-import { usePayeeAccount } from "@/lib/payee/payee-account";
-import { PasskeyCancelled } from "@/lib/payee/passkey-account";
-import { bestClaim, monthLabel, monthlyIncome, passportUrl, recentMonths } from "@/lib/payee/passport";
-import { signPassport } from "@/lib/payee/passport-key";
-import { cn } from "@/lib/utils";
-
-const SPANS = [1, 3, 6] as const;
+import { passportStats, stampLook } from "@/lib/payee/passport-stats";
 
 /**
- * Earnings Passport on the balance page: turn the payouts this account has claimed into a proof
- * of income ("at least $500 a month for 3 months, from 2 platforms") someone else can check.
+ * Earnings Passport on the balance page: the closed booklet. Shows the stamps collected so far
+ * and opens the full passport, where the payee can also share a checked proof of income.
  */
 export function PassportCard() {
-  const payee = usePayeeAccount();
   const history = usePayeeHistory();
-  const [span, setSpan] = useState<(typeof SPANS)[number]>(1);
-  const [busy, setBusy] = useState(false);
-  const [link, setLink] = useState<string | null>(null);
-
   const [now] = useState(() => Date.now());
-  const months = useMemo(() => recentMonths(span, now), [span, now]);
-  const claim = useMemo(() => (history.data ? bestClaim(monthlyIncome(history.data, months)) : null), [history.data, months]);
-  const period = months.length === 1 ? monthLabel(months[0]) : `${monthLabel(months[0])} to ${monthLabel(months.at(-1)!)}`;
+  const stats = useMemo(() => (history.data ? passportStats(history.data, now) : null), [history.data, now]);
+  if (!stats) return null;
 
-  if (!history.data) return null;
-  const hasPayouts = history.data.some((i) => i.kind === "received" && i.payout);
-
-  async function create() {
-    if (!claim || !payee.address || !payee.email) return;
-    setBusy(true);
-    try {
-      const passport = await signPassport(payee.email, { account: payee.address, months, ...claim });
-      setLink(passportUrl(window.location.origin, passport));
-      posthog.capture("passport_created", { months: months.length, min_monthly_usd: claim.minMonthlyUsd, platforms: claim.platforms });
-    } catch (err) {
-      if (!(err instanceof PasskeyCancelled)) toast.error(err instanceof Error ? err.message : "Couldn't create your proof. Try again.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(link!);
-      toast.success("Link copied");
-    } catch {
-      toast.error("Couldn't copy. Press and hold the link to copy it.");
-    }
-  }
-
-  async function share() {
-    if (typeof navigator.share !== "function") return copy();
-    try {
-      await navigator.share({ title: "My earnings, verified by Fanout", url: link! });
-    } catch {
-      // Closed the share sheet.
-    }
-  }
-
+  const stamps = stats.platforms.length;
   return (
-    <section aria-labelledby="passport-title" className="rounded-xl border border-line bg-surface p-5">
-      <div className="flex items-start gap-3">
-        <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-mint-surface text-on-mint" aria-hidden>
-          <BadgeCheck className="size-5" />
-        </span>
-        <div className="min-w-0">
-          <h2 id="passport-title" className="text-lg font-bold tracking-[-0.01em]">
-            Earnings Passport
-          </h2>
-          <p className="mt-0.5 text-sm text-muted">Prove what you earn, for rent, a loan or a visa. Your payments stay private.</p>
-        </div>
+    <Link
+      href="/balance/passport"
+      className="group relative isolate flex items-center gap-4 overflow-hidden rounded-xl bg-cobalt px-5 py-5 text-cream outline-none transition-transform duration-150 ease-out active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+    >
+      <PetalsMark size={150} color="var(--color-cobalt-600)" cutColor="var(--color-cobalt)" className="pointer-events-none absolute -right-8 -bottom-12 -z-10" />
+      <div className="min-w-0 flex-1">
+        <p className="text-lg font-bold">Earnings Passport</p>
+        <p className="mt-0.5 text-sm text-pretty text-cream/80">
+          {stamps === 0
+            ? "Your first stamp arrives with your first payout."
+            : `${stamps} ${stamps === 1 ? "stamp" : "stamps"} · ${stats.monthsPaid} ${stats.monthsPaid === 1 ? "month" : "months"} paid. Prove what you earn.`}
+        </p>
       </div>
-
-      {payee.kind !== "passkey" ? (
-        <p className="mt-4 text-sm text-muted">Your passport needs an account with a passkey. Set one up on a phone that supports passkeys.</p>
-      ) : !hasPayouts ? (
-        <p className="mt-4 text-sm text-muted">Your passport starts with your first payout.</p>
-      ) : link ? (
-        <div className="mt-4 flex flex-col gap-3">
-          <p className="text-sm">
-            Anyone with this link can check that you earned at least <strong>${claim?.minMonthlyUsd.toLocaleString("en-US")} a month</strong>.
-          </p>
-          <input
-            readOnly
-            value={link}
-            aria-label="Your Earnings Passport link"
-            onFocus={(e) => e.currentTarget.select()}
-            className="h-11 w-full truncate rounded-sm border border-line bg-card-raised px-3 font-mono text-xs text-muted"
-          />
-          <div className="grid grid-cols-2 gap-2">
-            <Button variant="secondary" onClick={() => void copy()}>
-              <Copy aria-hidden className="size-4" /> Copy
-            </Button>
-            <Button onClick={() => void share()}>
-              <Share2 aria-hidden className="size-4" /> Share
-            </Button>
-          </div>
-          <a href={link} target="_blank" rel="noreferrer" className="text-center text-sm font-semibold underline underline-offset-4">
-            See what they&apos;ll see
-          </a>
+      {stamps > 0 ? (
+        <div className="relative h-14 w-[76px] shrink-0" aria-hidden>
+          {stats.platforms.slice(-3).map((p, i) => {
+            const look = stampLook(p.id);
+            return (
+              <span
+                key={p.id}
+                className="absolute top-0 size-14 rounded-full bg-cobalt text-cream"
+                style={{ left: i * 10, transform: `rotate(${look.tilt}deg)`, zIndex: i } as CSSProperties}
+              >
+                <StampArt platform={p.id} firstPaidAt={p.firstPaidAt} className="size-full" />
+              </span>
+            );
+          })}
         </div>
       ) : (
-        <div className="mt-4 flex flex-col gap-4">
-          <div role="radiogroup" aria-label="Period to prove" className="grid grid-cols-3 gap-1 rounded-md bg-card-raised p-1">
-            {SPANS.map((n) => (
-              <button
-                key={n}
-                type="button"
-                role="radio"
-                aria-checked={span === n}
-                onClick={() => setSpan(n)}
-                className={cn(
-                  "h-9 rounded-sm text-sm font-semibold transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                  span === n ? "bg-surface text-foreground shadow-sm" : "text-muted hover:text-foreground",
-                )}
-              >
-                {n === 1 ? "This month" : `${n} months`}
-              </button>
-            ))}
-          </div>
-          {claim ? (
-            <p className="text-[15px]">
-              You can prove at least <strong>${claim.minMonthlyUsd.toLocaleString("en-US")} a month</strong> for {period}, from{" "}
-              {claim.platforms} {claim.platforms === 1 ? "platform" : "platforms"}.
-            </p>
-          ) : (
-            <p className="text-sm text-muted">Not every month in {period} had payouts. Pick a shorter period.</p>
-          )}
-          <Button size="lg" className="h-12 w-full" disabled={!claim || busy} onClick={() => void create()} aria-busy={busy}>
-            {busy ? (
-              <>
-                <Spinner className="size-4" /> Confirm with your passkey…
-              </>
-            ) : (
-              "Create proof"
-            )}
-          </Button>
-        </div>
+        <span aria-hidden className="size-12 shrink-0 -rotate-6 rounded-full border-2 border-dashed border-cream/40" />
       )}
-    </section>
+      <ChevronRight aria-hidden className="size-5 shrink-0 text-cream/70 transition-transform duration-150 ease-out group-hover:translate-x-0.5" />
+    </Link>
   );
 }
