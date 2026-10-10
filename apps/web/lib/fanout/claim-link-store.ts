@@ -1,6 +1,7 @@
 "use client";
 
 import type { Hex } from "viem";
+import type { Lang } from "@/lib/i18n/languages";
 
 /**
  * Where the platform keeps claim keys so the batch page can show links.
@@ -21,6 +22,8 @@ export type StoredClaim = {
   privateKey: Hex;
   email: string;
   note: string;
+  /** The payee's language for emails and reminders (the payout's language column). */
+  language?: Lang;
   /** When the link was last emailed to the payee (unix ms). Missing = never emailed. */
   emailedAt?: number;
 };

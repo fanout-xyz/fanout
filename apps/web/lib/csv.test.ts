@@ -65,3 +65,12 @@ describe("parsePayoutCsv", () => {
     expect(sheet.rows.every((r) => r.email.endsWith("@example.com"))).toBe(true);
   });
 });
+
+describe("language column", () => {
+  it("reads an optional language for the claim email", () => {
+    const sheet = parsePayoutCsv("email,amount,language\na@x.com,1,es\nb@x.com,1,Portuguese\nc@x.com,1,\nd@x.com,1,klingon", D);
+    expect(sheet.rows.map((r) => r.language)).toEqual(["es", "pt", undefined, undefined]);
+    expect(sheet.rows[3].errors[0]).toMatch(/Language "klingon" isn't available/);
+    expect(sheet.errorRowCount).toBe(1);
+  });
+});

@@ -8,6 +8,7 @@ import { payoutPollInterval } from "@/lib/claim-progress";
 import { activeChain } from "@/lib/chains";
 import { usePayeeAccount } from "@/lib/payee/payee-account";
 import { hashEmail } from "@/lib/email-hash";
+import type { Lang } from "@/lib/i18n/languages";
 import { emailClaimLinks } from "./claim-email-client";
 import { claimEmailProofMessage, type ClaimEmailProof } from "./claim-email-proof";
 import { buildClaimLink, generateClaimKey } from "./claim-keys";
@@ -103,7 +104,7 @@ export function useTestDollars() {
   });
 }
 
-export type NewPayoutRow ={ email: string; amount: bigint; note: string };
+export type NewPayoutRow = { email: string; amount: bigint; note: string; /** Claim email language. */ language?: Lang };
 
 /**
  * Creates a batch: one fresh claim key per row (only the address goes onchain),
@@ -119,7 +120,13 @@ export function useCreatePayout() {
     mutationFn: async ({ rows, claimWindowSeconds }: { rows: NewPayoutRow[]; claimWindowSeconds?: number }) => {
       const keyed = rows.map((row) => ({ row, key: generateClaimKey() }));
       const saved = saveClaims(
-        keyed.map(({ row, key }) => ({ claimSigner: key.claimSigner, privateKey: key.privateKey, email: row.email, note: row.note })),
+        keyed.map(({ row, key }) => ({
+          claimSigner: key.claimSigner,
+          privateKey: key.privateKey,
+          email: row.email,
+          note: row.note,
+          ...(row.language ? { language: row.language } : {}),
+        })),
       );
       if (!saved) {
         throw new Error("Couldn't save the claim links in this browser, so nothing was sent. Allow site storage and try again.");
@@ -130,7 +137,7 @@ export function useCreatePayout() {
       );
       // The money is out; emailing is a separate step whose failure the caller reports, not throws.
       const emailed = await emailClaimLinks(
-        keyed.map(({ row, key }) => ({ key: key.privateKey, claimSigner: key.claimSigner, email: row.email, note: row.note })),
+        keyed.map(({ row, key }) => ({ key: key.privateKey, claimSigner: key.claimSigner, email: row.email, note: row.note, language: row.language })),
         { accessToken: (await auth.getAccessToken?.()) ?? null, account: address },
       );
       return { ...created, emailed };
@@ -148,7 +155,7 @@ export function useEmailClaimLinks() {
   return useMutation({
     mutationFn: async ({ claims, reminder }: { claims: StoredClaim[]; reminder?: boolean }) => {
       const result = await emailClaimLinks(
-        claims.map((c) => ({ key: c.privateKey, claimSigner: c.claimSigner, email: c.email, note: c.note })),
+        claims.map((c) => ({ key: c.privateKey, claimSigner: c.claimSigner, email: c.email, note: c.note, language: c.language })),
         { accessToken: (await auth.getAccessToken?.()) ?? null, account: auth.user?.address },
         { reminder },
       );

@@ -30,7 +30,20 @@ type Props = {
   successAction?: ReactNode;
   /** Shown under the amount (e.g. the amount in the payee's local currency). */
   localAmount?: ReactNode;
+  /** The payee's language (the /claim page); the landing mock uses the English defaults. */
+  labels?: ClaimScreenLabels;
+  /** Cents -> "$1,234.56" in the payee's number format. */
+  formatAmount?: (cents: number) => string;
   className?: string;
+};
+
+export type ClaimScreenLabels = { youveBeenPaid: string; from: (platform: string) => string; claiming: string; inBalance: string };
+
+const ENGLISH: ClaimScreenLabels = {
+  youveBeenPaid: "You've been paid",
+  from: (platform) => `from ${platform}`,
+  claiming: "Claiming…",
+  inBalance: "It's in your Fanout balance",
 };
 
 const EASE_OUT = [0.2, 0.8, 0.2, 1] as const;
@@ -54,6 +67,8 @@ export function ClaimScreen({
   error,
   successAction,
   localAmount,
+  labels = ENGLISH,
+  formatAmount = formatCents,
   className,
 }: Props) {
   return (
@@ -72,7 +87,7 @@ export function ClaimScreen({
             animate={{ opacity: 1 }}
             transition={{ duration: 0.22, ease: EASE_OUT }}
           >
-            <Success amountCents={amountCents} reduced={reduced} />
+            <Success amountCents={amountCents} reduced={reduced} label={labels.inBalance} formatAmount={formatAmount} />
             {localAmount && <div className="mt-3">{localAmount}</div>}
             {successAction && <div className="mt-10 w-full">{successAction}</div>}
           </m.div>
@@ -84,13 +99,13 @@ export function ClaimScreen({
             transition={{ duration: 0.18, ease: EASE_OUT }}
           >
             <div className="flex flex-1 flex-col items-center justify-center text-center">
-              <p className="text-base font-semibold text-muted">You&apos;ve been paid</p>
-              <p className="mt-2 font-display text-[64px] leading-none tracking-[-0.03em] text-foreground tabular-nums">
-                {formatCents(amountCents)}
+              <p className="text-base font-semibold text-muted">{labels.youveBeenPaid}</p>
+              <p dir="ltr" className="mt-2 font-display text-[64px] leading-none tracking-[-0.03em] text-foreground tabular-nums">
+                {formatAmount(amountCents)}
               </p>
               {localAmount && <div className="mt-3">{localAmount}</div>}
               <p className="mt-5 rounded-full bg-mint-surface px-3 py-1.5 text-xs font-semibold text-balance text-on-mint">
-                from {platform}
+                {labels.from(platform)}
                 {note ? ` · ${note}` : ""}
               </p>
             </div>
@@ -102,7 +117,7 @@ export function ClaimScreen({
             <Button size="lg" className="h-14 w-full" onClick={onClaim} disabled={state === "claiming"} aria-busy={state === "claiming"}>
               {state === "claiming" ? (
                 <>
-                  <Spinner /> Claiming…
+                  <Spinner /> {labels.claiming}
                 </>
               ) : (
                 actionLabel
@@ -116,13 +131,25 @@ export function ClaimScreen({
   );
 }
 
-function Success({ amountCents, reduced }: { amountCents: number; reduced: boolean }) {
+function Success({
+  amountCents,
+  reduced,
+  label,
+  formatAmount,
+}: {
+  amountCents: number;
+  reduced: boolean;
+  label: string;
+  formatAmount: (cents: number) => string;
+}) {
   const shown = useTweenNumber(amountCents, { durationMs: 800, instant: reduced });
   return (
     <>
       <PetalsMark size={72} color="var(--primary-solid)" cutColor="var(--petal-cut, var(--bg))" fanOut={!reduced} />
-      <p className="mt-6 text-base font-semibold text-muted">It&apos;s in your Fanout balance</p>
-      <p className="mt-2 font-display text-[56px] leading-none tracking-[-0.03em] text-foreground tabular-nums">{formatCents(shown)}</p>
+      <p className="mt-6 text-base font-semibold text-muted">{label}</p>
+      <p dir="ltr" className="mt-2 font-display text-[56px] leading-none tracking-[-0.03em] text-foreground tabular-nums">
+        {formatAmount(shown)}
+      </p>
     </>
   );
 }

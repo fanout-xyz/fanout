@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { PassportView } from "@/components/passport/passport-view";
+import { PassportWithLetter } from "@/components/passport/passport-letter";
 
 export const metadata: Metadata = {
   title: "Your Earnings Passport · Fanout",
@@ -7,5 +7,5 @@ export const metadata: Metadata = {
 };
 
 export default function PassportPage() {
-  return <PassportView />;
+  return <PassportWithLetter />;
 }

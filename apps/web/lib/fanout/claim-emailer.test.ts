@@ -3,7 +3,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import { hashEmail } from "@/lib/email-hash";
 import { generateClaimKey } from "./claim-keys";
 import { claimEmailProofMessage } from "./claim-email-proof";
-import { EmailRefused, parseRequests, sendClaimEmails } from "./claim-emailer";
+import { EmailRefused, parseRequests, sendClaimEmails, withLanguage } from "./claim-emailer";
 import { emptyState, engine } from "./mock-engine";
 
 // Runs in mock mode (NEXT_PUBLIC_USE_MOCK unset): claims are read from the in-memory mock state.
@@ -158,5 +158,26 @@ describe("sendClaimEmails", () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 500 })));
     await sendClaimEmails({ requests: [{ key: key.privateKey, email: "ana@example.com" }], accessToken: null, mockAccount: platform, schedule });
     expect(schedule).not.toHaveBeenCalled();
+  });
+
+  it("emails in the payout's language and opens the claim page in it", async () => {
+    const key = pay("ana@example.com");
+    const requests = parseRequests({ links: [{ key: key.privateKey, email: "ana@example.com", language: "Spanish" }] });
+    expect(requests[0].language).toBe("es");
+    const res = await sendClaimEmails({ requests, accessToken: null, mockAccount: platform });
+    expect(res.sent).toEqual([key.claimSigner]);
+    const [email] = sentBodies[0];
+    expect(email.text).toContain("Recibe tu dinero aquí:");
+    expect(email.text).toContain(`https://fanout.test/claim?lang=es#k=${key.privateKey.slice(2)}`);
+    // An unknown language is dropped (English), never refused.
+    expect(parseRequests({ links: [{ key: key.privateKey, email: "ana@example.com", language: "xx" }] })[0].language).toBeUndefined();
+  });
+});
+
+describe("withLanguage", () => {
+  it("adds ?lang= before the fragment, and nothing for English", () => {
+    expect(withLanguage("https://x.test/claim#k=ab", "pt")).toBe("https://x.test/claim?lang=pt#k=ab");
+    expect(withLanguage("https://x.test/claim#k=ab", "en")).toBe("https://x.test/claim#k=ab");
+    expect(withLanguage("https://x.test/claim#k=ab", undefined)).toBe("https://x.test/claim#k=ab");
   });
 });
