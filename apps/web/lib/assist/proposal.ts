@@ -71,6 +71,8 @@ export type Flag = { kind: FlagKind; message: string; blocking: boolean; duplica
 export const OUTLIER_MULTIPLE = 5n;
 /** ...and at least this much, so $5 among $1 tips isn't flagged. */
 export const OUTLIER_MIN_CENTS = 50_00n;
+/** Rows with an amount needed before the file has a typical amount to compare against. */
+export const MIN_ROWS_FOR_TYPICAL = 3;
 
 const cell = (row: string[], i: number | null) => (i === null ? "" : (row[i] ?? "").trim());
 
@@ -152,8 +154,10 @@ export function flagRows(rows: ProposedRow[], usual?: Map<string, bigint>): Map<
   const flags = new Map<number, Flag[]>(active.map((r) => [r.id, []]));
   const add = (r: ProposedRow, f: Flag) => flags.get(r.id)!.push(f);
 
-  const priced = active.map((r) => toCents(r.amount)).filter((c): c is bigint => c !== null && c > 0n);
-  const median = priced.length >= 5 ? medianCents(priced) : null;
+  // The file's typical amount counts every row, left out or not, so leaving rows out never clears a
+  // warning on another row.
+  const priced = rows.map((r) => toCents(r.amount)).filter((c): c is bigint => c !== null && c > 0n);
+  const median = priced.length >= MIN_ROWS_FOR_TYPICAL ? medianCents(priced) : null;
   const firstFor = new Map<string, ProposedRow>();
 
   for (const r of active) {

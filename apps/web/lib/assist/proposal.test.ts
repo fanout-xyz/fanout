@@ -134,6 +134,19 @@ describe("flagRows", () => {
     expect(summarize(checked, flagRows(checked)).toCheck).toBe(5);
   });
 
+  it("keeps outlier warnings when other rows are left out", () => {
+    const sheet = "email,amount\na@x.com,80\nb@x.com,45\nc@x.com,1200\nd@x.com,30\ne@x.com,80\nf@x.com,25000";
+    const all = buildProposal(readTable(sheet), reading({})).rows;
+    const fewer = all.map((r) => (r.id === 3 || r.id === 4 ? { ...r, dropped: true } : r));
+    expect(kinds(flagRows(fewer), 2)).toEqual(["outlier"]);
+    expect(kinds(flagRows(fewer), 5)).toEqual(["outlier"]);
+  });
+
+  it("checks files with three or more amounts", () => {
+    const three = buildProposal(readTable("email,amount\na@x.com,80\nb@x.com,45\nc@x.com,25000"), reading({})).rows;
+    expect(kinds(flagRows(three), 2)).toEqual(["outlier"]);
+  });
+
   it("doesn't flag outliers in small files", () => {
     const small = buildProposal(readTable("email,amount\na@x.com,1\nb@x.com,900"), reading({})).rows;
     expect([...flagRows(small).values()].flat()).toEqual([]);
