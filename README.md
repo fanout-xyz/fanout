@@ -88,9 +88,15 @@ Example transactions:
 | Deploy ClaimEscrow | [`0x1892…5c20`](https://testnet.monadscan.com/tx/0x18926816e4efe415db20738af81d3f2af618264a5e62ab4a3235094fef7e5c20) |
 | Deploy BatchPayout | [`0x9ee3…357b`](https://testnet.monadscan.com/tx/0x9ee385eb0525dda043a2a00f3d621698ac85249df785667f7b8c45e769d0357b) |
 | Deploy SettleToUsdc | [`0xd77a…a86e`](https://testnet.monadscan.com/tx/0xd77a76a3f88950abbb81a181fd988a315d5772529f367128e022f4afd0eaa86e) |
+| Platform deposits 1.51 AUSD for batch 1004 | [`0x6bf0…0c6b`](https://testnet.monadscan.com/tx/0x6bf0522f02537a5050dd65b7009fa7a0f1433355e23613f3e4665f2831b70c6b) |
+| `createBatchFor`: 150 people, one transaction, 11.17M gas (batch 1004) | [`0x35c7…8195`](https://testnet.monadscan.com/tx/0x35c768e6e85bf2b16736a6b8bae4c987ef3067c9e184329daa538e7a605e8195) |
+| First claim from batch 1004, sent by the relayer | [`0xc975…9d29`](https://testnet.monadscan.com/tx/0xc9753f113a1d807560bca9aebbfe11cc2ecab84b0fef72465a439080b3f69d29) |
+| Last (150th) claim from batch 1004 | [`0x7807…e4a3`](https://testnet.monadscan.com/tx/0x78070bfea1bc1db135dfd6dc525bea696144d2c79a0ab96ff7de76401ee3e4a3) |
 | Platform deposits 1,000 AUSD (previous `monad-ausd` contracts) | [`0xb6a4…890e`](https://testnet.monadscan.com/tx/0xb6a49bc37edf81adf2ed58ebbfa149cd21e858f9a363aa7d6b454261da8e890e) |
 | `createBatch`: 5 people, $137, one transaction (`monad-ausd`) | [`0x74cb…9e16`](https://testnet.monadscan.com/tx/0x74cb82ae80663371f9fe443c717fc990aee35dc38972e31835de2a4a173a9e16) |
 | A payee's claim from that batch, sent by the relayer (`monad-ausd`) | [`0xd11d…be82`](https://testnet.monadscan.com/tx/0xd11d5eb6acd79badc31f1fcb7382123b80b9964fd94bff92214fb167ec20be82) |
+
+Batch 1004 is a full-size payout on the live contracts: the platform signed it and the relayer submitted it. All 150 payees then claimed, each to a new wallet, in blocks 70,727,866 to 70,728,109. The [indexer](https://indexer.dev.hyperindex.xyz/1b4e07c/v1/graphql) shows it as 150 rows, 150 claimed.
 
 Deploy records, including every transaction: [`smart-contract/ignition/deployments/`](smart-contract/ignition/deployments/).
 
@@ -120,7 +126,7 @@ Why not let payouts within the limits go through on their own? `CreateBatch` com
 Connect it from the Agents page (Claude Code, Cursor, Claude Desktop through `mcp-remote`, or an OpenAI Responses API `mcp` tool), or with Claude Code:
 
 ```bash
-claude mcp add --transport http fanout https://fanout.tech/api/mcp --header "Authorization: Bearer fo_agent_..."
+claude mcp add --transport http fanout https://demo.fanout.tech/api/mcp --header "Authorization: Bearer fo_agent_..."
 ```
 
 Try it locally: `pnpm dev`, then `pnpm --filter web mcp-smoke --url http://localhost:3000` creates a key for a demo platform, connects an MCP client, asks for payouts within and over the limits, approves one as the platform and checks it.
@@ -128,7 +134,7 @@ Try it locally: `pnpm dev`, then `pnpm --filter web mcp-smoke --url http://local
 **2. x402, for an agent with no Fanout account.** `POST /api/x402/payout` with rows and an `Idempotency-Key` answers `402 Payment Required` with [x402 v2](https://github.com/coinbase/x402/blob/main/specs/x402-specification-v2.md) requirements in the `PAYMENT-REQUIRED` header ([HTTP transport](https://github.com/coinbase/x402/blob/main/specs/transports-v2/http.md)): scheme `exact`, the payout total plus a fee (0.5%, at least $0.10), USDC on Monad testnet, paid to Fanout's operator account. The agent signs an ERC-3009 authorization for exactly that and retries with `PAYMENT-SIGNATURE`. Fanout verifies it, checks it can make the payout and email it, settles the payment, pays the rows from the operator account's payout balance, emails the claim links, and answers with the payout number, a status URL (`GET /api/x402/payout/<id>`, counts only, no emails) and `PAYMENT-RESPONSE`.
 
 ```bash
-curl -i -X POST https://fanout.tech/api/x402/payout \
+curl -i -X POST https://demo.fanout.tech/api/x402/payout \
   -H "content-type: application/json" -H "Idempotency-Key: payout-0001" \
   -d '{"rows":[{"email":"ana@example.com","amount":"25.00","note":"Thanks!"}]}'
 ```
