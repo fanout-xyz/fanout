@@ -126,7 +126,7 @@ Why not let payouts within the limits go through on their own? `CreateBatch` com
 Connect it from the Agents page (Claude Code, Cursor, Claude Desktop through `mcp-remote`, or an OpenAI Responses API `mcp` tool), or with Claude Code:
 
 ```bash
-claude mcp add --transport http fanout https://fanout.tech/api/mcp --header "Authorization: Bearer fo_agent_..."
+claude mcp add --transport http fanout https://demo.fanout.tech/api/mcp --header "Authorization: Bearer fo_agent_..."
 ```
 
 Try it locally: `pnpm dev`, then `pnpm --filter web mcp-smoke --url http://localhost:3000` creates a key for a demo platform, connects an MCP client, asks for payouts within and over the limits, approves one as the platform and checks it.
@@ -134,7 +134,7 @@ Try it locally: `pnpm dev`, then `pnpm --filter web mcp-smoke --url http://local
 **2. x402, for an agent with no Fanout account.** `POST /api/x402/payout` with rows and an `Idempotency-Key` answers `402 Payment Required` with [x402 v2](https://github.com/coinbase/x402/blob/main/specs/x402-specification-v2.md) requirements in the `PAYMENT-REQUIRED` header ([HTTP transport](https://github.com/coinbase/x402/blob/main/specs/transports-v2/http.md)): scheme `exact`, the payout total plus a fee (0.5%, at least $0.10), USDC on Monad testnet, paid to Fanout's operator account. The agent signs an ERC-3009 authorization for exactly that and retries with `PAYMENT-SIGNATURE`. Fanout verifies it, checks it can make the payout and email it, settles the payment, pays the rows from the operator account's payout balance, emails the claim links, and answers with the payout number, a status URL (`GET /api/x402/payout/<id>`, counts only, no emails) and `PAYMENT-RESPONSE`.
 
 ```bash
-curl -i -X POST https://fanout.tech/api/x402/payout \
+curl -i -X POST https://demo.fanout.tech/api/x402/payout \
   -H "content-type: application/json" -H "Idempotency-Key: payout-0001" \
   -d '{"rows":[{"email":"ana@example.com","amount":"25.00","note":"Thanks!"}]}'
 ```
